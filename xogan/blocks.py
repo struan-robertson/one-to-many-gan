@@ -11,7 +11,7 @@ from .layers import Conv2dWeightModulate, DownSample, EqualisedConv2d, Equalised
 class ToRGB(nn.Module):
     """Generates an RGB image from feature maps using a 1x1 convolution."""
 
-    def __init__(self, d_latent: int, features: int, out_channels=3):
+    def __init__(self, d_latent: int, features: int, out_channels=1):
         super().__init__()
 
         self.to_style = EqualisedLinear(d_latent, features, bias=1.0)
@@ -56,13 +56,15 @@ class StyleBlock(nn.Module):
 class GeneratorBlock(nn.Module):
     """Two StyleBlocks and an RGB output."""
 
-    def __init__(self, d_latent: int, in_features: int, out_features: int):
+    def __init__(
+        self, d_latent: int, in_features: int, out_features: int, out_channels: int
+    ):
         super().__init__()
 
         self.style_block1 = StyleBlock(d_latent, in_features, out_features)
         self.style_block2 = StyleBlock(d_latent, out_features, out_features)
 
-        self.to_rgb = ToRGB(d_latent, out_features)
+        self.to_rgb = ToRGB(d_latent, out_features, out_channels=out_channels)
 
     def forward(
         self,

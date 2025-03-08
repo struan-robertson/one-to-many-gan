@@ -1,6 +1,7 @@
 """Orchestrate training of model."""
 
 import functools
+import itertools
 import math
 import operator
 import sys
@@ -39,7 +40,7 @@ CONFIG = {
     "lazy_path_penalty_interval": 32,
     "lazy_path_penalty_after": 5_000,
     "log_generated_interval": 500,
-    "save_checkpoint_interval": 1_000,
+    "save_checkpoint_interval": 2_000,
 }
 
 # * Initialisation
@@ -213,7 +214,7 @@ def save_grid(step: int):
 
 def main():
     """Training loop."""
-    data_iter = iter(dataloader)
+    data_iter = itertools.cycle(dataloader)
 
     for step in tqdm(
         range(CONFIG["training_steps"]),
@@ -289,13 +290,17 @@ def main():
 
         # Logging
 
-        if (step + 1) % CONFIG["log_generated_interval"] == 0:
+        if (step + 1) % CONFIG["log_generated_interval"] == 0 or (step + 1) == CONFIG[
+            "training_steps"
+        ]:
             tqdm.write(
                 f"Step: {step + 1}/{CONFIG['training_steps']}, Generator loss: {log_gen_loss},"
                 f"Discriminator loss: {log_disc_loss}"
             )
 
-        if (step + 1) % CONFIG["save_checkpoint_interval"] == 0:
+        if (step + 1) % CONFIG["save_checkpoint_interval"] == 0 or (step + 1) == CONFIG[
+            "training_steps"
+        ]:
             save_grid(step + 1)
 
 

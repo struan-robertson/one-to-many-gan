@@ -1,0 +1,83 @@
+[project]
+name = "xogan-pt"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "gdown>=5.2.0",
+    "matplotlib>=3.10.1",
+    "numpy>=2.2.3",
+    "torch>=2.6.0", # TODO why do I need to install nvidia dependencies w pip?
+    "torchvision>=0.21.0",
+    "tqdm>=4.67.1",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+torchvision = [
+  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv]
+dev-dependencies = [
+    "ipdb>=0.13.13",
+    "ipython>=8.31.0",
+    "pyright>=1.1.393",
+]
+
+[tool.ruff]
+target-version = "py313"
+respect-gitignore = true
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = [ "ALL" ]
+extend-ignore = [
+    "ANN",  # Type hinting, leave for basedpyright
+    "FIX",  # Leave fixme for emacs
+    "TD" ,  # Same with todo
+    "T201", # print functions are fine
+    "F821", # Both Pyright and ruff detect this
+    "F722", # Incorrectly throwing errors with forward type annotations
+    "F401", # Pyright conflict
+    "B006", # Pyright conflict
+    "PLR2004", # Using constant values in if statements is a common pattern for me
+    "PLR0913", # Functional style programing for Jax requires a lot of arguments
+    "INP001", # I dont always want to add an `__init__.py`
+    "F841", # Pyright detects this
+    "ARG001", # Pyright detects this
+    "FBT001", # Bools are useful as arguments
+    "E731", # Stay away from my lambda assignments
+    "ARG002", # Pyright detects this
+    "D107", # __init__ docstring is kinda covered by class docstring
+    "D102", # Almost all methods in this project are __call__, which isn't really necessary to document
+    "D209", # Docstring closing quotes appear to effect emacs indentation logic
+    "TRY003", # Bit of a crazy rule about raising exceptions
+    "S108", # No need to warn about using tmp files
+    "N812", # torch.functional as F not f
+    # Better handled by ruff linter https://docs.astral.sh/ruff/formatter/#format-suppression
+    "W191",
+    "E111",
+    "E114",
+    "E117",
+    "D206",
+    "D300",
+    "Q000",
+    "Q001",
+    "Q002",
+    "Q003",
+    "COM812",
+    "COM819",
+    "ISC002",
+]
+
+
+

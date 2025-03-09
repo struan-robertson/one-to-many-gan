@@ -16,6 +16,7 @@ from .blocks import (
 from .layers import EqualisedConv2d, EqualisedLinear, UpSample
 
 
+@torch.compile
 class MappingNetwork(nn.Module):
     """Maps from latent vector z to intermediate latent vector w."""
 
@@ -46,8 +47,8 @@ class MappingNetwork(nn.Module):
         """Sample z randomly and get w from mapping network.
 
         Style mixing is also applied randomly."""
-        if torch.rand(()).item() < self.style_mixing_prob:
-            cross_over_point = int(torch.rand(()).item() * n_gen_blocks)
+        if torch.rand(()).lt(self.style_mixing_prob):
+            cross_over_point = torch.randint(0, n_gen_blocks, ())
 
             z1 = torch.randn(batch_size, self.d_latent).to(device)
             z2 = torch.randn(batch_size, self.d_latent).to(device)
@@ -65,6 +66,7 @@ class MappingNetwork(nn.Module):
         return w[None, :, :].expand(n_gen_blocks, -1, -1)
 
 
+@torch.compile
 class Generator(nn.Module):
     """Generates images given intermediate latent space w."""
 
@@ -152,6 +154,7 @@ class Generator(nn.Module):
         return self.forward(w, noise)
 
 
+@torch.compile
 class Discriminator(nn.Module):
     """Judges if an image is fake or real."""
 

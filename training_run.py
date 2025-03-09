@@ -24,8 +24,8 @@ CONFIG = {
     "path_length_penalty_coeficcient": 0.99,
     "batch_size": 32,
     "d_latent": 512,
-    "image_size": 32,
-    "image_channels": 3,
+    "image_size": 128,
+    "image_channels": 1,
     "mapping_network_layers": 8,
     "learning_rate": 1e-3,
     "mapping_network_learning_rate": 1e-5,
@@ -42,13 +42,13 @@ CONFIG = {
 
 # * Initialisation
 
-# ** Random Seed
+# ** PyTorch
+# *** Random Seed
 seed = 42
 torch.manual_seed(seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(seed)
-
-# ** Device
+# *** Device
 
 device = (
     torch.cuda.current_device()
@@ -56,6 +56,9 @@ device = (
     else torch.cpu.current_device()
 )
 
+# *** Config
+torch.set_float32_matmul_precision("high")
+torch._functorch.config.donated_buffer = False  # pyright: ignore[reportAttributeAccessIssue] # noqa: SLF001
 # ** Models
 
 log_resolution = int(math.log2(CONFIG["image_size"]))

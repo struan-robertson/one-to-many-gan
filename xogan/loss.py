@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch import nn
 
 
+@torch.compile
 class GradientPenalty(nn.Module):
     """Ensure discriminator is 1-Lipshitz for Wasserstein-style losses."""
 
@@ -24,6 +25,7 @@ class GradientPenalty(nn.Module):
         return torch.mean(norm**2)
 
 
+@torch.compile
 class PathLengthPenalty(nn.Module):
     """Encourages a fixed-size step in w to result in a fixed-magnitude change in the image."""
 
@@ -72,6 +74,7 @@ class PathLengthPenalty(nn.Module):
         return loss
 
 
+@torch.compile
 def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
     """Calculate discriminator loss on real and fake batches.
 
@@ -80,6 +83,7 @@ def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
     return F.relu(1 - f_real).mean(), F.relu(1 + f_fake).mean()
 
 
+@torch.compile
 def generator_loss(f_fake: torch.Tensor):
     """Calculate generator loss for generated fake batch."""
     return -f_fake.mean()

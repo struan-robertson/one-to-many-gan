@@ -6,7 +6,10 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from .utils import compile_
 
+
+# torch.autograd.grad not supported in full graph compilation
 @torch.compile
 class GradientPenalty(nn.Module):
     """Ensure discriminator is 1-Lipshitz for Wasserstein-style losses."""
@@ -25,6 +28,7 @@ class GradientPenalty(nn.Module):
         return torch.mean(norm**2)
 
 
+# torch.autograd.grad not supported in full graph compilation
 @torch.compile
 class PathLengthPenalty(nn.Module):
     """Encourages a fixed-size step in w to result in a fixed-magnitude change in the image."""
@@ -53,7 +57,6 @@ class PathLengthPenalty(nn.Module):
             create_graph=True,
         )
 
-        # TODO why do they calculate L_2 norm differently here than in GradientPenalty?
         norm = (gradients**2).sum(dim=2).mean(dim=1).sqrt()
 
         if self.steps > 0:
@@ -74,7 +77,7 @@ class PathLengthPenalty(nn.Module):
         return loss
 
 
-@torch.compile
+@compile_
 def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
     """Calculate discriminator loss on real and fake batches.
 
@@ -83,7 +86,7 @@ def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
     return F.relu(1 - f_real).mean(), F.relu(1 + f_fake).mean()
 
 
-@torch.compile
+@compile_
 def generator_loss(f_fake: torch.Tensor):
     """Calculate generator loss for generated fake batch."""
     return -f_fake.mean()

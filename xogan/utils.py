@@ -7,6 +7,12 @@ from pathlib import Path
 import torch
 from matplotlib import pyplot as plt
 
+# I want it to be explicit if I am compiling a function that cannot be fully compiled
+compile_ = functools.partial(
+    torch.compile,
+    fullgraph=True,
+)
+
 
 def save_grid(step: int, images: torch.Tensor):
     """Save a grid of generated images to a file."""

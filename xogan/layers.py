@@ -29,29 +29,54 @@ class EqualisedLinear(nn.Module):
     def __init__(self, in_features: int, out_features: int, bias: float = 0.0):
         super().__init__()
 
+        self.in_features = in_features
+        self.out_features = out_features
+
         self.weight = EqualisedWeight([out_features, in_features])
-        self.bias = nn.Parameter(torch.ones(out_features) * bias)
+        self.bias = nn.Parameter(torch.zeros(out_features) + bias)
 
     def forward(self, x: torch.Tensor):
         return F.linear(x, self.weight(), bias=self.bias)
+
+    def extra_repr(self):
+        return f"in_layers={self.in_features}, out_layers={self.out_features}"
 
 
 class EqualisedConv2d(nn.Module):
     """Uses learning-rate equalised weights for a convolution layer."""
 
     def __init__(
-        self, in_features: int, out_features: int, kernel_size: int, padding: int = 0
+        self,
+        in_features: int,
+        out_features: int,
+        kernel_size: int | tuple[int, int],
+        padding: int = 0,
     ):
         super().__init__()
 
+        self.in_features = in_features
+        self.out_features = out_features
+        self.kernel_size = kernel_size
+
+        if isinstance(kernel_size, int):
+            kernel_height, kernel_width = (kernel_size, kernel_size)
+        else:
+            kernel_height, kernel_width = kernel_size
+
         self.padding = padding
         self.weight = EqualisedWeight(
-            [out_features, in_features, kernel_size, kernel_size]
+            [out_features, in_features, kernel_height, kernel_width]
         )
         self.bias = nn.Parameter(torch.ones(out_features))
 
     def forward(self, x: torch.Tensor):
         return F.conv2d(x, self.weight(), bias=self.bias, padding=self.padding)
+
+    def extra_repr(self):
+        return (
+            f"in_features={self.in_features}, out_features={self.out_features},"
+            f" kernel_size={self.kernel_size}"
+        )
 
 
 class Conv2dWeightModulate(nn.Module):
@@ -68,6 +93,7 @@ class Conv2dWeightModulate(nn.Module):
     ):
         super().__init__()
 
+        self.in_features = in_features
         self.out_features = out_features
         self.demodulate = demodulate
         self.padding = (kernel_size - 1) // 2
@@ -100,6 +126,12 @@ class Conv2dWeightModulate(nn.Module):
         x = F.conv2d(x, weights, padding=self.padding, groups=b)
 
         return x.reshape(-1, self.out_features, h, w)
+
+    def extra_repr(self):
+        return (
+            f"in_features={self.in_features}, out_features={self.out_features},"
+            f"demodulate={self.demodulate}, padding={self.padding}, eps={self.eps}"
+        )
 
 
 class Smooth(nn.Module):

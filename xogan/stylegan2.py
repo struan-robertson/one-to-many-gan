@@ -8,15 +8,17 @@ from torch._prims_common import DeviceLikeType
 
 from .blocks import (
     DiscriminatorBlock,
-    GeneratorBlock,
+    GeneratorDecoderBlock,
+    GeneratorEncoderBlock,
     MiniBatchStdDev,
     StyleBlock,
     ToRGB,
 )
-from .layers import EqualisedConv2d, EqualisedLinear, UpSample
+from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
+from .utils import compile_
 
 
-@torch.compile
+@compile_
 class MappingNetwork(nn.Module):
     """Maps from latent vector z to intermediate latent vector w."""
 
@@ -66,7 +68,7 @@ class MappingNetwork(nn.Module):
         return w[None, :, :].expand(n_gen_blocks, -1, -1)
 
 
-@torch.compile
+@compile_
 class Generator(nn.Module):
     """Generates images given intermediate latent space w."""
 
@@ -76,47 +78,81 @@ class Generator(nn.Module):
         d_latent: int,
         n_features: int = 32,
         max_features: int = 512,
-        out_channels: int = 1,
+        img_channels: int = 1,
     ):
         super().__init__()
 
+        # TODO manually tune features to find something that works
         features = [
             min(max_features, n_features * (2**i))
             for i in range(log_resolution - 2, -1, -1)
         ]
 
+        # TODO make sure that this reversal doesn't throw off the balance of filters between
+        # generator and discriminator, adjust if needed
+        # TODO clean up feature generation code, currently a bit all over the place
+        encoder_features = features[::-1]
+        decoder_features = features
+
         self.n_blocks = len(features)
 
-        self.initial_constant = nn.Parameter(torch.randn((1, features[0], 4, 4)))
+        self.from_rgb = nn.Sequential(
+            EqualisedConv2d(
+                in_features=img_channels, out_features=n_features, kernel_size=1
+            ),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
 
-        self.style_block = StyleBlock(d_latent, features[0], features[0])
-        self.to_rgb = ToRGB(d_latent, features[0], out_channels=out_channels)
-
-        blocks = [
-            GeneratorBlock(
-                d_latent, features[i - 1], features[i], out_channels=out_channels
+        encoder_blocks = [
+            GeneratorEncoderBlock(
+                in_features=encoder_features[i - 1], out_features=encoder_features[i]
             )
             for i in range(1, self.n_blocks)
         ]
-        self.blocks = nn.ModuleList(blocks)
+        self.encoder_blocks = nn.ModuleList(encoder_blocks)
 
+        self.style_block = StyleBlock(
+            d_latent, decoder_features[0], decoder_features[0]
+        )
+        self.to_rgb = ToRGB(d_latent, decoder_features[0], out_channels=img_channels)
+
+        decoder_blocks = [
+            GeneratorDecoderBlock(
+                d_latent,
+                in_features=decoder_features[i - 1],
+                out_features=decoder_features[i],
+                out_channels=img_channels,
+            )
+            for i in range(1, self.n_blocks)
+        ]
+        self.decoder_blocks = nn.ModuleList(decoder_blocks)
+
+        self.down_sample = DownSample()
         self.up_sample = UpSample()
 
     def forward(
         self,
+        x: torch.Tensor,
         w: torch.Tensor,
         input_noise: list[tuple[torch.Tensor, torch.Tensor]],
     ):
-        batch_size = w.shape[1]
+        # The last block doesn't get run
+        # Encoder
+        x = self.from_rgb(x)
 
-        x = self.initial_constant.expand(batch_size, -1, -1, -1)
+        for i in range(1, self.n_blocks):
+            x = self.down_sample(x)
+            x = self.encoder_blocks[i - 1](x)
+
+        breakpoint()
+
+        # Decoder
         x = self.style_block(x, w[0], input_noise[0][1])
-
         rgb = self.to_rgb(x, w[0])
 
         for i in range(1, self.n_blocks):
             x = self.up_sample(x)
-            x, rgb_new = self.blocks[i - 1](x, w[i], input_noise[i])
+            x, rgb_new = self.decoder_blocks[i - 1](x, w[i], input_noise[i])
 
             rgb = self.up_sample(rgb) + rgb_new
 
@@ -127,34 +163,37 @@ class Generator(nn.Module):
     ) -> list[tuple[torch.Tensor, torch.Tensor]]:
         """Generate noise for each generator block."""
         noise = []
-        resolution = 4  # Shape of learned constant
+        resolution = (8, 4)  # Shape of bottleneck feature maps
 
         for i in range(self.n_blocks):
             n1 = (
                 None
                 if i == 0
-                else torch.randn(batch_size, 1, resolution, resolution, device=device)
+                else torch.randn(
+                    batch_size, 1, resolution[0], resolution[1], device=device
+                )
             )
-            n2 = torch.randn(batch_size, 1, resolution, resolution, device=device)
+            n2 = torch.randn(batch_size, 1, resolution[0], resolution[1], device=device)
 
             noise.append((n1, n2))
 
-            resolution *= 2
+            resolution = (resolution[0] * 2, resolution[1] * 2)
 
         return noise
 
     def generate_images(
         self,
         batch_size: int,
+        x: torch.Tensor,
         w: torch.Tensor,
         device: DeviceLikeType,
     ) -> torch.Tensor:
         """Generate images using the generator."""
         noise = self.get_noise(batch_size, device)
-        return self.forward(w, noise)
+        return self.forward(x, w, noise)
 
 
-@torch.compile
+@compile_
 class Discriminator(nn.Module):
     """Judges if an image is fake or real."""
 
@@ -187,7 +226,7 @@ class Discriminator(nn.Module):
         self.std_dev = MiniBatchStdDev()
         final_features = features[-1] + 1  # Account for standard deviation feature
 
-        self.conv = EqualisedConv2d(final_features, final_features, 3)
+        self.conv = EqualisedConv2d(final_features, final_features, kernel_size=(7, 3))
         self.final = EqualisedLinear(2 * 2 * final_features, 1)
 
     def forward(self, x: torch.Tensor):

@@ -53,7 +53,31 @@ class StyleBlock(nn.Module):
         return self.activation(x + self.bias[None, :, None, None])
 
 
-class GeneratorBlock(nn.Module):
+class GeneratorEncoderBlock(nn.Module):
+    """No style or noise injection."""
+
+    def __init__(self, in_features: int, out_features: int):
+        super().__init__()
+
+        self.residual = EqualisedConv2d(in_features, out_features, kernel_size=1)
+
+        # TODO try with two conv blocks
+        self.conv = EqualisedConv2d(in_features, out_features, kernel_size=3, padding=1)
+        self.bias = nn.Parameter(torch.zeros(out_features))
+        self.activation = nn.LeakyReLU(0.2, inplace=True)
+
+        self.down_sample = DownSample()
+
+    def forward(self, x: torch.Tensor):
+        residual = self.residual(x)
+
+        x = self.conv(x)
+        x = self.activation(x + self.bias[None, :, None, None])
+
+        return x + residual
+
+
+class GeneratorDecoderBlock(nn.Module):
     """Two StyleBlocks and an RGB output."""
 
     def __init__(
@@ -101,7 +125,7 @@ class DiscriminatorBlock(nn.Module):
 
         self.scale = 1 / math.sqrt(2)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         residual = self.residual(x)
 
         x = self.block(x)

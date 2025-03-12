@@ -47,8 +47,28 @@ class StyleBlock(nn.Module):
         s = self.to_style(w)
         x = self.conv(x, s)
 
-        if noise is not None:
-            x = x + self.scale_noise[None, :, None, None] * noise
+        # if noise is not None:
+        #     x = x + self.scale_noise[None, :, None, None] * noise
+
+        return self.activation(x + self.bias[None, :, None, None])
+
+
+class GeneratorBottleneckBlock(nn.Module):
+    """Style injection and residual connection."""
+
+    def __init__(self, d_latent: int, features: int):
+        super().__init__()
+
+        self.to_style = EqualisedLinear(d_latent, features, bias=1.0)
+        self.conv = Conv2dWeightModulate(features, features, kernel_size=3)
+        self.bias = nn.Parameter(torch.zeros(features))
+        self.activation = nn.LeakyReLU(0.2, inplace=True)
+
+    def forward(self, x: torch.Tensor, w: torch.Tensor):
+        residual = x
+
+        s = self.to_style(w)
+        x = self.conv(x, s)
 
         return self.activation(x + self.bias[None, :, None, None])
 
@@ -65,8 +85,6 @@ class GeneratorEncoderBlock(nn.Module):
         self.conv = EqualisedConv2d(in_features, out_features, kernel_size=3, padding=1)
         self.bias = nn.Parameter(torch.zeros(out_features))
         self.activation = nn.LeakyReLU(0.2, inplace=True)
-
-        self.down_sample = DownSample()
 
     def forward(self, x: torch.Tensor):
         residual = self.residual(x)

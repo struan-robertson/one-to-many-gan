@@ -8,6 +8,7 @@ from torch._prims_common import DeviceLikeType
 
 from .blocks import (
     DiscriminatorBlock,
+    GeneratorBottleneckBlock,
     GeneratorDecoderBlock,
     GeneratorEncoderBlock,
     MiniBatchStdDev,
@@ -82,19 +83,25 @@ class Generator(nn.Module):
     ):
         super().__init__()
 
-        # TODO manually tune features to find something that works
-        features = [
-            min(max_features, n_features * (2**i))
-            for i in range(log_resolution - 2, -1, -1)
-        ]
+        # # TODO manually tune features to find something that works
+        # features = [
+        #     min(max_features, n_features * (2**i))
+        #     for i in range(log_resolution - 2, -1, -1)
+        # ]
 
-        # TODO make sure that this reversal doesn't throw off the balance of filters between
-        # generator and discriminator, adjust if needed
-        # TODO clean up feature generation code, currently a bit all over the place
-        encoder_features = features[::-1]
-        decoder_features = features
+        # # TODO make sure that this reversal doesn't throw off the balance of filters between
+        # # generator and discriminator, adjust if needed
+        # # TODO clean up feature generation code, currently a bit all over the place
+        # encoder_features = features[::-1]
+        # decoder_features = [x * 2 for x in features]
 
-        self.n_blocks = len(features)
+        # 64 32 16
+        encoder_features = [32, 64, 128]
+        # 16   32  64
+        decoder_features = [128, 64, 32]
+
+        # self.n_blocks = len(features)
+        self.n_blocks = len(encoder_features)
 
         self.from_rgb = nn.Sequential(
             EqualisedConv2d(
@@ -107,9 +114,16 @@ class Generator(nn.Module):
             GeneratorEncoderBlock(
                 in_features=encoder_features[i - 1], out_features=encoder_features[i]
             )
-            for i in range(1, self.n_blocks)
+            for i in range(1, len(encoder_features))
         ]
         self.encoder_blocks = nn.ModuleList(encoder_blocks)
+
+        bottleneck_blocks = [
+            GeneratorBottleneckBlock(d_latent, encoder_features[-1])
+        ] * 5
+        self.bottleneck_blocks = nn.ModuleList(bottleneck_blocks)
+
+        self.n_blocks += len(bottleneck_blocks) + 1
 
         self.style_block = StyleBlock(
             d_latent, decoder_features[0], decoder_features[0]
@@ -123,11 +137,11 @@ class Generator(nn.Module):
                 out_features=decoder_features[i],
                 out_channels=img_channels,
             )
-            for i in range(1, self.n_blocks)
+            for i in range(1, len(decoder_features))
         ]
         self.decoder_blocks = nn.ModuleList(decoder_blocks)
 
-        self.down_sample = DownSample()
+        self.down_sample = DownSample(smooth=False)
         self.up_sample = UpSample()
 
     def forward(
@@ -136,23 +150,32 @@ class Generator(nn.Module):
         w: torch.Tensor,
         input_noise: list[tuple[torch.Tensor, torch.Tensor]],
     ):
+        w_iter = iter(w)
+        noise_iter = iter(input_noise)
         # The last block doesn't get run
         # Encoder
         x = self.from_rgb(x)
 
-        for i in range(1, self.n_blocks):
+        # Encoder
+        # skips = []
+        for i in range(len(self.encoder_blocks)):
+            x = self.encoder_blocks[i](x)
+            # skips.append(x)
             x = self.down_sample(x)
-            x = self.encoder_blocks[i - 1](x)
 
-        breakpoint()
+        # Bottleneck
+        for i in range(len(self.bottleneck_blocks)):
+            x = self.bottleneck_blocks[i](x, next(w_iter))
 
         # Decoder
-        x = self.style_block(x, w[0], input_noise[0][1])
-        rgb = self.to_rgb(x, w[0])
+        x = self.style_block(x, next(w_iter), next(noise_iter)[1])
+        rgb = self.to_rgb(x, next(w_iter))
 
-        for i in range(1, self.n_blocks):
+        # skips.reverse()
+        for i in range(len(self.decoder_blocks)):
             x = self.up_sample(x)
-            x, rgb_new = self.decoder_blocks[i - 1](x, w[i], input_noise[i])
+            # x = torch.cat((x, skips[i - 1]), dim=1)
+            x, rgb_new = self.decoder_blocks[i](x, next(w_iter), next(noise_iter))
 
             rgb = self.up_sample(rgb) + rgb_new
 
@@ -163,7 +186,7 @@ class Generator(nn.Module):
     ) -> list[tuple[torch.Tensor, torch.Tensor]]:
         """Generate noise for each generator block."""
         noise = []
-        resolution = (8, 4)  # Shape of bottleneck feature maps
+        resolution = (32, 16)  # Shape of bottleneck feature maps
 
         for i in range(self.n_blocks):
             n1 = (
@@ -226,7 +249,9 @@ class Discriminator(nn.Module):
         self.std_dev = MiniBatchStdDev()
         final_features = features[-1] + 1  # Account for standard deviation feature
 
-        self.conv = EqualisedConv2d(final_features, final_features, kernel_size=(7, 3))
+        self.conv = EqualisedConv2d(
+            final_features, final_features, kernel_size=(7, 3)
+        )  # 7, 3
         self.final = EqualisedLinear(2 * 2 * final_features, 1)
 
     def forward(self, x: torch.Tensor):

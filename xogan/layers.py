@@ -39,7 +39,7 @@ class EqualisedLinear(nn.Module):
         return F.linear(x, self.weight(), bias=self.bias)
 
     def extra_repr(self):
-        return f"in_layers={self.in_features}, out_layers={self.out_features}"
+        return f"in_features={self.in_features}, out_features={self.out_features}"
 
 
 class EqualisedConv2d(nn.Module):
@@ -173,19 +173,22 @@ class UpSample(nn.Module):
         self.smooth = Smooth()
 
     def forward(self, x: torch.Tensor):
-        return self.smooth(self.up_sample(x))
+        # return self.smooth(self.up_sample(x))
+        return self.up_sample(x)
 
 
 class DownSample(nn.Module):
     """Smooths each feature and then scales down by 2x."""
 
-    def __init__(self):
+    def __init__(self, smooth=True):
         super().__init__()
 
+        self.smooth_map = smooth
         self.smooth = Smooth()
 
     def forward(self, x: torch.Tensor):
-        x = self.smooth(x)
+        # if self.smooth_map:
+        #     x = self.smooth(x)
 
         return F.interpolate(
             x, (x.shape[2] // 2, x.shape[3] // 2), mode="bilinear", align_corners=False

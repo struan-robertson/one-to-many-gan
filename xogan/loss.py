@@ -83,10 +83,11 @@ def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
 
     This is kept separate to allow logging both losses."""
     # Use ReLUs to clip the loss to keep f in [-1, +1] range
-    return F.relu(1 - f_real).mean(), F.relu(1 + f_fake).mean()
+    return F.relu(-f_real).mean() + F.relu(f_fake).mean()
 
 
 @compile_
 def generator_loss(f_fake: torch.Tensor):
     """Calculate generator loss for generated fake batch."""
     return -f_fake.mean()
+    # return F.relu(-f_fake).mean()

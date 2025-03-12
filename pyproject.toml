@@ -9,6 +9,8 @@ dependencies = [
     "matplotlib>=3.10.1",
     "numpy>=2.2.3",
     "pillow>=11.1.0",
+    "pytorch-ada",
+    "scipy>=1.15.2",
     "torch>=2.6.0", # TODO why do I need to install nvidia dependencies w pip?
     "torchvision>=0.21.0",
     "tqdm>=4.67.1",
@@ -21,6 +23,7 @@ torch = [
 torchvision = [
   { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
+pytorch-ada = { git = "https://github.com/BenediktAlkin/pytorch-ada" }
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

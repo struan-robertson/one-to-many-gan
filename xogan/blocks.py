@@ -59,18 +59,16 @@ class GeneratorBottleneckBlock(nn.Module):
     def __init__(self, d_latent: int, features: int):
         super().__init__()
 
-        self.to_style = EqualisedLinear(d_latent, features, bias=1.0)
-        self.conv = Conv2dWeightModulate(features, features, kernel_size=3)
-        self.bias = nn.Parameter(torch.zeros(features))
-        self.activation = nn.LeakyReLU(0.2, inplace=True)
+        self.style_block1 = StyleBlock(d_latent, features, features)
+        self.style_block2 = StyleBlock(d_latent, features, features)
 
     def forward(self, x: torch.Tensor, w: torch.Tensor):
         residual = x
 
-        s = self.to_style(w)
-        x = self.conv(x, s)
+        x = self.style_block1(x, w, None)
+        x = self.style_block2(x, w, None)
 
-        return self.activation(x + self.bias[None, :, None, None])
+        return x + residual
 
 
 class GeneratorEncoderBlock(nn.Module):
@@ -141,7 +139,7 @@ class DiscriminatorBlock(nn.Module):
 
         self.down_sample = DownSample()
 
-        self.scale = 1 / math.sqrt(2)
+        self.scale = 1 / math.sqrt(2)  # TODO what happens if I remove this?
 
     def forward(self, x: torch.Tensor):
         residual = self.residual(x)

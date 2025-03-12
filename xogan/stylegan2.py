@@ -1,5 +1,7 @@
 """Lets try this with PyTorch instead of Jax."""
 
+import math
+
 import torch
 import torch.nn.functional as F
 import torch.utils.data
@@ -76,32 +78,23 @@ class Generator(nn.Module):
     def __init__(
         self,
         log_resolution: int,
+        bottleneck_resolution: tuple[int, int],
         d_latent: int,
+        n_bottleneck_blocks: int = 9,
         n_features: int = 32,
-        max_features: int = 512,
         img_channels: int = 1,
     ):
         super().__init__()
 
-        # # TODO manually tune features to find something that works
-        # features = [
-        #     min(max_features, n_features * (2**i))
-        #     for i in range(log_resolution - 2, -1, -1)
-        # ]
+        # Number of encoding and decoding steps required to reach specified bottleneck resolution
+        coding_steps = int(log_resolution - math.log2(min(bottleneck_resolution)))
+        coding_features = [n_features * (2**i) for i in range(coding_steps)]
+        encoder_features = coding_features
+        decoder_features = coding_features[::-1]
 
-        # # TODO make sure that this reversal doesn't throw off the balance of filters between
-        # # generator and discriminator, adjust if needed
-        # # TODO clean up feature generation code, currently a bit all over the place
-        # encoder_features = features[::-1]
-        # decoder_features = [x * 2 for x in features]
-
-        # 64 32 16
-        encoder_features = [32, 64, 128]
-        # 16   32  64
-        decoder_features = [128, 64, 32]
-
-        # self.n_blocks = len(features)
-        self.n_blocks = len(encoder_features)
+        # Encoder/decoder + bottleneck blocks + first RGB style block
+        self.n_noise_blocks = len(decoder_features)
+        self.n_style_blocks = len(decoder_features) + n_bottleneck_blocks + 1
 
         self.from_rgb = nn.Sequential(
             EqualisedConv2d(
@@ -118,13 +111,13 @@ class Generator(nn.Module):
         ]
         self.encoder_blocks = nn.ModuleList(encoder_blocks)
 
+        self.bottleneck_resolution = bottleneck_resolution
         bottleneck_blocks = [
             GeneratorBottleneckBlock(d_latent, encoder_features[-1])
-        ] * 5
+        ] * (n_bottleneck_blocks - 1)
         self.bottleneck_blocks = nn.ModuleList(bottleneck_blocks)
 
-        self.n_blocks += len(bottleneck_blocks) + 1
-
+        # First RGB output from bottleneck
         self.style_block = StyleBlock(
             d_latent, decoder_features[0], decoder_features[0]
         )
@@ -168,8 +161,9 @@ class Generator(nn.Module):
             x = self.bottleneck_blocks[i](x, next(w_iter))
 
         # Decoder
-        x = self.style_block(x, next(w_iter), next(noise_iter)[1])
-        rgb = self.to_rgb(x, next(w_iter))
+        first_encoder_w = next(w_iter)
+        x = self.style_block(x, first_encoder_w, next(noise_iter)[1])
+        rgb = self.to_rgb(x, first_encoder_w)
 
         # skips.reverse()
         for i in range(len(self.decoder_blocks)):
@@ -186,9 +180,9 @@ class Generator(nn.Module):
     ) -> list[tuple[torch.Tensor, torch.Tensor]]:
         """Generate noise for each generator block."""
         noise = []
-        resolution = (32, 16)  # Shape of bottleneck feature maps
+        resolution = self.bottleneck_resolution
 
-        for i in range(self.n_blocks):
+        for i in range(self.n_noise_blocks):
             n1 = (
                 None
                 if i == 0

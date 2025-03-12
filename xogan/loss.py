@@ -8,6 +8,8 @@ from torch import nn
 
 from .utils import compile_
 
+# * Penalties
+
 
 # torch.autograd.grad not supported in full graph compilation
 @torch.compile
@@ -77,6 +79,56 @@ class PathLengthPenalty(nn.Module):
         return loss
 
 
+# * Adaptive Discriminator Augmentation
+
+
+# TODO this doesn't need to be a module, clean up API
+class ADAp(nn.Module):
+    """Adaptive discriminator augmentation state."""
+
+    def __init__(
+        self,
+        ada_e: int,
+        ada_adjustment_size: float,
+        batch_size: int,
+        discriminator_overfitting_target: float,
+    ):
+        super().__init__()
+
+        # Number of batches required to reach images to calculate mean overfitting
+        self.n_batches = ada_e // batch_size
+        # Amount to adjust ADA each time
+        self.ada_adjustment = ada_adjustment_size * ada_e
+
+        self.overfitting_target = discriminator_overfitting_target
+
+        self.p = torch.zeros(1)
+        self.curr_batch = 0
+        self.d_signs = []
+
+    def forward(self, d_train_sign: torch.Tensor):
+        if self.curr_batch == self.n_batches:
+            self.d_signs.append(d_train_sign)
+
+            mean_sign = torch.mean(torch.cat(self.d_signs))
+
+            if mean_sign < self.overfitting_target:
+                self.p -= self.ada_adjustment
+            elif mean_sign > self.overfitting_target:
+                self.p += self.ada_adjustment
+
+            self.curr_batch = 0
+            self.d_signs = []
+
+            self.p = nn.functional.relu(self.p, inplace=True)
+
+        self.curr_batch += 1
+        self.d_signs.append(d_train_sign)
+
+
+# * Loss Functions
+
+
 @compile_
 def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
     """Calculate discriminator loss on real and fake batches.
@@ -89,5 +141,5 @@ def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
 @compile_
 def generator_loss(f_fake: torch.Tensor):
     """Calculate generator loss for generated fake batch."""
-    return -f_fake.mean()
-    # return F.relu(-f_fake).mean()
+    # return -f_fake.mean()
+    return F.relu(-f_fake).mean()

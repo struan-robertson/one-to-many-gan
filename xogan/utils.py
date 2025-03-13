@@ -1,7 +1,6 @@
 """Miscellaneous utility functions."""
 
 import functools
-import operator
 from pathlib import Path
 
 import torch
@@ -14,28 +13,28 @@ compile_ = functools.partial(
 )
 
 
-def save_grid(step: int, images: torch.Tensor):
+def save_grid(step: int, images: list[list[torch.Tensor]]):
     """Save a grid of generated images to a file."""
-    # Put colour channel as final dim
-    images = images.permute(0, 2, 3, 1)
 
-    # Scale to between 0 and 1
-    images = (images - images.min()) / (images.max() - images.min())
+    def process_image(image: torch.Tensor):
+        image = image.permute(0, 2, 3, 1)
+        image = (image - image.min()) / (image.max() - image.min())
+        image = image[0]
 
-    # Convert to numpy and move to cpu
-    images_np = images.cpu().numpy()
+        return image.cpu().numpy()
+
+    images_np = [[process_image(image) for image in row] for row in images]
 
     plt.ioff()
 
     _, axes = plt.subplots(nrows=4, ncols=8, figsize=(8, 4))
 
-    for ax, image in zip(
-        functools.reduce(operator.iadd, axes.tolist(), []),
-        images_np,
-        strict=True,
-    ):
-        ax.imshow(image, cmap="gray")
-        ax.set_axis_off()
+    for row_idx in range(4):
+        for col_idx in range(8):
+            axes[row_idx, col_idx].imshow(
+                images_np[col_idx][row_idx], cmap="gray"
+            )  # Note that images_np is col major, and axes_np is row major
+            axes[row_idx, col_idx].set_axis_off()
 
     savepath: Path = Path("./checkpoints")
     savepath.mkdir(exist_ok=True)
@@ -78,7 +77,7 @@ class Logger:
             f"Discriminator loss: {calc_mean(self.log_disc_losses):.6g}, "
             f"D real/fake acc: {calc_mean(self.log_disc_real_acc):.6g}"
             f"/{calc_mean(self.log_disc_fake_acc):.6g}, "
-            f"ADA: {calc_mean(self.log_ada_p)}, "
+            f"ADA: {calc_mean(self.log_ada_p):.6g}, "
             f"Siamese loss: {calc_mean(self.log_siamese_loss):.6g}, "
             f"S positive/fake acc {calc_mean(self.log_siamese_positive_accuracy):.6g}"
             f"/{calc_mean(self.log_siamese_negative_accuracy):.6g}"

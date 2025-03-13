@@ -383,6 +383,8 @@ def siamese_step():
 
         log_siamese_loss += siamese_loss
 
+        # TODO, maybe use euclidean distance here
+        # closer to 0 means overfitting
         positive_similarities = F.cosine_similarity(norm_anchor_emb, norm_positive_emb)
         negative_similarities = F.cosine_similarity(norm_anchor_emb, norm_negative_emb)
 
@@ -498,7 +500,7 @@ def main():
                 shoemark_images = []
                 for column in range(8):
                     column_images = []
-                    column_images.append(shoeprint_images[column])
+                    column_images.append(shoeprint_images[column][None, ...])
 
                     for row in range(3):
                         row_image = generator.generate_images(
@@ -506,14 +508,12 @@ def main():
                         )
                         column_images.append(row_image)
 
-                    shoemark_images.append(torch.cat(column_images))
-
-                images = torch.cat(shoemark_images)
+                    shoemark_images.append(column_images)
 
             generator.train()
             mapping_network.train()
 
-            save_grid(step + 1, images)
+            save_grid(step + 1, shoemark_images)
 
 
 if __name__ == "__main__":

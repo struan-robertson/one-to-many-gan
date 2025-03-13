@@ -50,32 +50,43 @@ class EqualisedConv2d(nn.Module):
         in_features: int,
         out_features: int,
         kernel_size: int | tuple[int, int],
+        stride: int = 1,
         padding: int = 0,
+        dilation: int = 1,
     ):
         super().__init__()
 
         self.in_features = in_features
         self.out_features = out_features
         self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
 
         if isinstance(kernel_size, int):
             kernel_height, kernel_width = (kernel_size, kernel_size)
         else:
             kernel_height, kernel_width = kernel_size
 
-        self.padding = padding
         self.weight = EqualisedWeight(
             [out_features, in_features, kernel_height, kernel_width]
         )
         self.bias = nn.Parameter(torch.ones(out_features))
 
     def forward(self, x: torch.Tensor):
-        return F.conv2d(x, self.weight(), bias=self.bias, padding=self.padding)
+        return F.conv2d(
+            x,
+            self.weight(),
+            bias=self.bias,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+        )
 
     def extra_repr(self):
         return (
             f"in_features={self.in_features}, out_features={self.out_features},"
-            f" kernel_size={self.kernel_size}"
+            f" kernel_size={self.kernel_size}, stride={self.stride}, dilation={self.dilation}"
         )
 
 

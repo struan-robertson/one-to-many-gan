@@ -48,11 +48,13 @@ class MappingNetwork(nn.Module):
         batch_size: int,
         n_gen_blocks: int,
         device: DeviceLikeType,
+        *,
+        mix_styles=True,
     ):
         """Sample z randomly and get w from mapping network.
 
         Style mixing is also applied randomly."""
-        if torch.rand(()).lt(self.style_mixing_prob):
+        if torch.rand(()).lt(self.style_mixing_prob) and mix_styles:
             cross_over_point = torch.randint(0, n_gen_blocks, ())
 
             z1 = torch.randn(batch_size, self.d_latent).to(device)
@@ -150,10 +152,8 @@ class Generator(nn.Module):
         x = self.from_rgb(x)
 
         # Encoder
-        # skips = []
         for i in range(len(self.encoder_blocks)):
             x = self.encoder_blocks[i](x)
-            # skips.append(x)
             x = self.down_sample(x)
 
         # Bottleneck
@@ -165,10 +165,8 @@ class Generator(nn.Module):
         x = self.style_block(x, first_encoder_w, next(noise_iter)[1])
         rgb = self.to_rgb(x, first_encoder_w)
 
-        # skips.reverse()
         for i in range(len(self.decoder_blocks)):
             x = self.up_sample(x)
-            # x = torch.cat((x, skips[i - 1]), dim=1)
             x, rgb_new = self.decoder_blocks[i](x, next(w_iter), next(noise_iter))
 
             rgb = self.up_sample(rgb) + rgb_new

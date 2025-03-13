@@ -82,8 +82,8 @@ class PathLengthPenalty(nn.Module):
 # * Adaptive Discriminator Augmentation
 
 
-# TODO this doesn't need to be a module, clean up API
-class ADAp(nn.Module):
+# Can't compile this as it has many calls to other libraries, such as scipy
+class ADAp:
     """Adaptive discriminator augmentation state."""
 
     def __init__(
@@ -93,8 +93,6 @@ class ADAp(nn.Module):
         batch_size: int,
         discriminator_overfitting_target: float,
     ):
-        super().__init__()
-
         # Number of batches required to reach images to calculate mean overfitting
         self.n_batches = ada_e // batch_size
         # Amount to adjust ADA each time
@@ -102,11 +100,11 @@ class ADAp(nn.Module):
 
         self.overfitting_target = discriminator_overfitting_target
 
-        self.p = torch.zeros(1)
+        self.p = torch.zeros(())
         self.curr_batch = 0
         self.d_signs = []
 
-    def forward(self, d_train_sign: torch.Tensor):
+    def update_p(self, d_train_sign: torch.Tensor):
         if self.curr_batch == self.n_batches:
             self.d_signs.append(d_train_sign)
 
@@ -125,6 +123,9 @@ class ADAp(nn.Module):
         self.curr_batch += 1
         self.d_signs.append(d_train_sign)
 
+    def __call__(self):
+        return self.p
+
 
 # * Loss Functions
 
@@ -141,5 +142,28 @@ def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
 @compile_
 def generator_loss(f_fake: torch.Tensor):
     """Calculate generator loss for generated fake batch."""
-    # return -f_fake.mean()
-    return F.relu(-f_fake).mean()
+    return -f_fake.mean()
+    # return F.relu(-f_fake).mean()
+
+
+@compile_
+class SiameseTripletLoss(nn.Module):
+    """Triplet margin loss with L2-normalisation."""
+
+    def __init__(self, margin=0.8):
+        super().__init__()
+        self.loss = nn.TripletMarginLoss(margin=margin)
+
+    def forward(
+        self, anchor: torch.Tensor, positive: torch.Tensor, negative: torch.Tensor
+    ):
+        # Normalise
+        norm_anchor = F.normalize(anchor, p=2, dim=1)
+        norm_positive = F.normalize(positive, p=2, dim=1)
+        norm_negative = F.normalize(negative, p=2, dim=1)
+
+        return self.loss(anchor, positive, negative), (
+            norm_anchor,
+            norm_positive,
+            norm_negative,
+        )

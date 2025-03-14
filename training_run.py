@@ -8,36 +8,31 @@ import numpy as np
 import torch
 import torch.utils.data
 from ada import AdaptiveDiscriminatorAugmentation
+from torch import nn
 from torch.nn import functional as F
 from torchvision import transforms
 from tqdm import tqdm
 from xogan.data import Edges2ShoesDataset, ShoeDataset
 from xogan.loss import (
     ADAp,
-    GradientPenalty,
-    PathLengthPenalty,
     SiameseTripletLoss,
-    discriminator_loss,
-    generator_loss,
 )
+from xogan.santa import AdaINDiscriminator, AdaINResnetGenerator
 from xogan.siamese import GlobalContextSiamese
-from xogan.stylegan2 import Discriminator, Generator, MappingNetwork
 from xogan.utils import Logger, save_grid
 
 # * Hyperparameters
 
 CONFIG = {
-    "gradient_penalty_coeficcient": 10.0,
-    "path_length_penalty_coeficcient": 0.99,
     "siamese_generator_coefficient": 0.5,
     "batch_size": 16,
-    "d_latent": 128,
+    "d_latent": 8,
     "siamese_embedding_dimensions": 256,
-    "image_size": (128, 64),
+    "image_size": (256, 128),
     "image_channels": 1,
-    "mapping_network_layers": 6,
-    "learning_rate": 1e-3,
-    "mapping_network_learning_rate": 1e-5,  # 100x less
+    "mapping_network_layers": 2,
+    "learning_rate": 2e-3,
+    "mapping_network_learning_rate": 2e-5,  # 100x less
     "gradient_accumulate_steps": 1,
     "discriminator_steps": 1,
     "generator_steps": 1,
@@ -47,13 +42,10 @@ CONFIG = {
     "discriminator_overfitting_target": 0.6,
     "ada_E": 256,  # Number of images over which to take the mean discriminator overfitting
     "ada_adjustment_size": 5.12e-4,  # Adjustment amount per image, multiplied by ada_E
-    "adam_betas": (0.0, 0.99),
+    "adam_betas": (0.5, 0.99),
     "style_mixing_prob": 0.9,
     "triplet_loss_margin": 0.8,
     "training_steps": 1_000_000,
-    "lazy_gradient_penalty_interval": 4,
-    "lazy_path_penalty_interval": 32,
-    "lazy_path_penalty_after": 5_000_000,
     "log_generated_interval": 500,
     "save_checkpoint_interval": 1_000,
 }
@@ -81,41 +73,12 @@ torch._functorch.config.donated_buffer = False  # pyright: ignore[reportAttribut
 
 # ** Models
 
-log_resolution = int(math.log2(min(CONFIG["image_size"])))
+discriminator = AdaINDiscriminator(input_nc=CONFIG["image_channels"]).to(device)
 
-discriminator = Discriminator(
-    log_resolution=log_resolution, in_channels=CONFIG["image_channels"]
-).to(device)
+generator = AdaINResnetGenerator(input_nc=CONFIG["image_channels"]).to(device)
 
-generator = Generator(
-    log_resolution=log_resolution,
-    bottleneck_resolution=CONFIG["generator_bottleneck_resolution"],
-    d_latent=CONFIG["d_latent"],
-    n_bottleneck_blocks=CONFIG["generator_bottleneck_blocks"],
-    img_channels=CONFIG["image_channels"],
-).to(device)
-n_gen_style_blocks = generator.n_style_blocks
-
-mapping_network = MappingNetwork(
-    features=CONFIG["d_latent"],
-    n_layers=CONFIG["mapping_network_layers"],
-    style_mixing_prob=CONFIG["style_mixing_prob"],
-).to(device)
-
-shoemark_siamese = GlobalContextSiamese(
-    in_channels=CONFIG["image_channels"], emb_dim=CONFIG["siamese_embedding_dimensions"]
-).to(device)
-shoeprint_siamese = GlobalContextSiamese(
-    in_channels=CONFIG["image_channels"], emb_dim=CONFIG["siamese_embedding_dimensions"]
-).to(device)
 
 # ** Regularisation
-
-path_length_penalty = PathLengthPenalty(
-    beta=CONFIG["path_length_penalty_coeficcient"]
-).to(device)
-
-gradient_penalty = GradientPenalty().to(device)
 
 adaptive_discriminator_augmentation = AdaptiveDiscriminatorAugmentation(
     xflip=1,
@@ -139,10 +102,6 @@ ada_p = ADAp(
     discriminator_overfitting_target=CONFIG["discriminator_overfitting_target"],
 )
 
-# ** Siamese
-
-triplet_loss = SiameseTripletLoss(margin=CONFIG["triplet_loss_margin"])
-
 # ** Optimisers
 
 discriminator_optimiser = torch.optim.Adam(
@@ -153,24 +112,9 @@ generator_optimiser = torch.optim.Adam(
     generator.parameters(), lr=CONFIG["learning_rate"], betas=CONFIG["adam_betas"]
 )
 
-mapping_network_optimiser = torch.optim.Adam(
-    mapping_network.parameters(),
-    lr=CONFIG["mapping_network_learning_rate"],
-    betas=CONFIG["adam_betas"],
-)
+# ** Losses
 
-# Use AdamW as siamese net uses batch norm
-shoemark_siamese_optimiser = torch.optim.AdamW(
-    shoemark_siamese.parameters(),
-    lr=CONFIG["mapping_network_learning_rate"],
-    betas=CONFIG["adam_betas"],
-)
-
-shoeprint_siamese_optimiser = torch.optim.AdamW(
-    shoeprint_siamese.parameters(),
-    lr=CONFIG["mapping_network_learning_rate"],
-    betas=CONFIG["adam_betas"],
-)
+criterion = nn.MSELoss()
 
 # ** Data
 
@@ -183,7 +127,7 @@ transform = transforms.Compose(
 )
 
 shoemark_data = ShoeDataset(
-    "~/Datasets/Santa Partitioned/Shoemarks", mode="train", transform=transform
+    "~/Datasets/GAN Partitioned/Shoemarks", mode="train", transform=transform
 )
 shoemark_dataloader = torch.utils.data.DataLoader(
     shoemark_data,
@@ -195,7 +139,7 @@ shoemark_dataloader = torch.utils.data.DataLoader(
 )
 
 shoeprint_data = ShoeDataset(
-    "~/Datasets/Santa Partitioned/Shoeprints", mode="train", transform=transform
+    "~/Datasets/GAN Partitioned/Shoeprints", mode="train", transform=transform
 )
 shoeprint_dataloader = torch.utils.data.DataLoader(
     shoeprint_data,
@@ -226,54 +170,35 @@ def discriminator_step(step: int):
     log_real_accuracy = torch.zeros((), device=device)
     log_fake_accuracy = torch.zeros((), device=device)
     for _ in range(CONFIG["gradient_accumulate_steps"]):
-        w = mapping_network.get_w(CONFIG["batch_size"], n_gen_style_blocks, device)
-
         shoeprint_images = next(shoeprint_iter).to(device)
-        generated_shoemarks = generator.generate_images(
-            CONFIG["batch_size"], shoeprint_images, w, device
-        )
-
+        generated_shoemarks = generator(shoeprint_images)
         augmented_fake_shoemarks = adaptive_discriminator_augmentation(
             generated_shoemarks.detach()
         )
-        fake_output = discriminator(augmented_fake_shoemarks)
+        fake_scores = discriminator(augmented_fake_shoemarks)
 
         real_shoemarks = next(shoemark_iter).to(device)
         augmented_real_shoemarks = adaptive_discriminator_augmentation(real_shoemarks)
+        real_scores = discriminator(augmented_real_shoemarks)
 
-        if (step + 1) % CONFIG["lazy_gradient_penalty_interval"] == 0:
-            augmented_real_shoemarks.requires_grad_()
+        real_loss = criterion(real_scores, torch.ones_like(real_scores))
+        fake_loss = criterion(fake_scores, torch.zeros_like(fake_scores))
 
-        real_output = discriminator(augmented_real_shoemarks)
+        disc_loss = (real_loss + fake_loss) / 2
 
+        mean_real_score = real_scores.detach().mean()
+        mean_fake_score = fake_scores.detach().mean()
         # r_t for adaptive discriminator normalisation
-        sign_real = torch.sign(real_output.detach())
-        log_real_accuracy += torch.mean(sign_real)
+        log_real_accuracy += mean_real_score
 
         # Update ADA p value
-        ada_p.update_p(sign_real)
+        ada_p.update_p(mean_real_score)
 
-        sign_fake = torch.sign(fake_output.detach())
-        log_fake_accuracy += torch.mean(sign_fake)
-
-        disc_loss = discriminator_loss(real_output, fake_output)
-
-        if (step + 1) % CONFIG["lazy_gradient_penalty_interval"] == 0:
-            gp = gradient_penalty(augmented_real_shoemarks, real_output)
-
-            disc_loss = (
-                disc_loss
-                + 0.5
-                * CONFIG["gradient_penalty_coeficcient"]
-                * gp
-                * CONFIG["lazy_gradient_penalty_interval"]
-            )
+        log_fake_accuracy += mean_fake_score
 
         log_disc_loss += disc_loss
 
         disc_loss.backward()
-
-    torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1.0)
 
     discriminator_optimiser.step()
 
@@ -293,117 +218,31 @@ def discriminator_step(step: int):
 def generator_step(step: int):
     """Take a step with the generator and return loss."""
     generator_optimiser.zero_grad()
-    mapping_network_optimiser.zero_grad()
 
     log_gen_loss = torch.zeros((), device=device)
     for _ in range(CONFIG["gradient_accumulate_steps"]):
-        w = mapping_network.get_w(CONFIG["batch_size"], n_gen_style_blocks, device)
-
         shoeprint_images = next(shoeprint_iter).to(device)
-        generated_shoemarks = generator.generate_images(
-            CONFIG["batch_size"], shoeprint_images, w, device
-        )
+        generated_shoemarks = generator(shoeprint_images)
 
         augmented_generated_images = adaptive_discriminator_augmentation(
             generated_shoemarks
         )
-        fake_shoemarks_score = discriminator(augmented_generated_images)
+        fake_shoemark_scores = discriminator(augmented_generated_images)
 
-        gen_loss = generator_loss(fake_shoemarks_score)
-
-        # anchor = shoeprint_images
-        # positive = generated_shoemarks
-        # negative = next(shoemark_iter).to(device)
-
-        # anchor_emb = shoeprint_siamese(anchor)
-        # positive_emb = shoemark_siamese(positive)
-        # negative_emb = shoemark_siamese(negative)
-
-        # siamese_loss, _ = triplet_loss(anchor_emb, positive_emb, negative_emb)
-        # gen_loss += siamese_loss * CONFIG["siamese_generator_coefficient"]
-
-        if (
-            step > CONFIG["lazy_path_penalty_after"]
-            and (step + 1) % CONFIG["lazy_gradient_penalty_interval"] == 0
-        ):
-            plp = path_length_penalty(w, generated_shoemarks)
-
-            if not torch.isnan(plp):
-                gen_loss = gen_loss + plp
+        # Non-saturating loss
+        gen_loss = criterion(
+            fake_shoemark_scores, torch.ones_like(fake_shoemark_scores)
+        )
 
         log_gen_loss += gen_loss
 
         gen_loss.backward()
 
-    torch.nn.utils.clip_grad_norm_(generator.parameters(), max_norm=1.0)
-    torch.nn.utils.clip_grad_norm_(mapping_network.parameters(), max_norm=1.0)
-
     generator_optimiser.step()
-    mapping_network_optimiser.step()
 
     log_gen_loss /= CONFIG["gradient_accumulate_steps"]
 
     return log_gen_loss.detach().cpu().numpy()
-
-
-# ** Siamese
-
-
-def siamese_step():
-    """Take a step with the siamese network and return loss."""
-    shoemark_siamese_optimiser.zero_grad()
-    shoeprint_siamese_optimiser.zero_grad()
-
-    log_siamese_loss = torch.zeros((), device=device)
-    log_siamese_positive_accuracy = torch.zeros((), device=device)
-    log_siamese_negative_accuracy = torch.zeros((), device=device)
-
-    for _ in range(CONFIG["gradient_accumulate_steps"]):
-        w = mapping_network.get_w(CONFIG["batch_size"], n_gen_style_blocks, device)
-
-        shoeprint_images = next(shoeprint_iter).to(device)
-        generated_shoemarks = generator.generate_images(
-            CONFIG["batch_size"], shoeprint_images, w, device
-        )
-
-        anchor = shoeprint_images
-        positive = generated_shoemarks.detach()
-        negative = next(shoemark_iter).to(device)
-
-        # TODO add ADA
-        anchor_emb = shoeprint_siamese(anchor)
-        positive_emb = shoemark_siamese(positive)
-        negative_emb = shoemark_siamese(negative)
-
-        siamese_loss, (norm_anchor_emb, norm_positive_emb, norm_negative_emb) = (
-            triplet_loss(anchor_emb, positive_emb, negative_emb)
-        )
-
-        log_siamese_loss += siamese_loss
-
-        positive_similarities = torch.norm(
-            norm_anchor_emb - norm_positive_emb, p=2, dim=1
-        )
-        negative_similarities = torch.norm(
-            norm_anchor_emb - norm_negative_emb, p=2, dim=1
-        )
-
-        log_siamese_positive_accuracy += torch.mean(positive_similarities.detach())
-        log_siamese_negative_accuracy += torch.mean(negative_similarities.detach())
-
-        siamese_loss.backward()
-
-    shoeprint_siamese_optimiser.step()
-    shoemark_siamese_optimiser.step()
-
-    log_siamese_loss /= CONFIG["gradient_accumulate_steps"]
-    log_siamese_positive_accuracy /= CONFIG["gradient_accumulate_steps"]
-    log_siamese_negative_accuracy /= CONFIG["gradient_accumulate_steps"]
-
-    return log_siamese_loss.detach().cpu().numpy(), (
-        log_siamese_positive_accuracy.cpu().numpy(),
-        log_siamese_negative_accuracy.cpu().numpy(),
-    )
 
 
 # ** Main Loop
@@ -440,23 +279,6 @@ def main():
 
         logger.log_gen_loss += np.mean(gen_losses).item()
 
-        # siamese_losses = []
-        # siamese_positive_accuracies = []
-        # siamese_negative_accuracies = []
-        # for _ in range(CONFIG["siamese_steps"]):
-        #     siamese_loss, (siamese_positive_acc, siamese_negative_acc) = siamese_step()
-        #     siamese_losses.append(siamese_loss)
-        #     siamese_positive_accuracies.append(siamese_positive_acc)
-        #     siamese_negative_accuracies.append(siamese_negative_acc)
-
-        # logger.log_siamese_loss += np.mean(siamese_losses).item()
-        # logger.log_siamese_positive_accuracy += np.mean(
-        #     siamese_positive_accuracies
-        # ).item()
-        # logger.log_siamese_negative_accuracy += np.mean(
-        #     siamese_negative_accuracies
-        # ).item()
-
         # Logging
 
         if (step + 1) % CONFIG["log_generated_interval"] == 0 or (step + 1) == CONFIG[
@@ -469,15 +291,7 @@ def main():
         ]:
             # Generate images
             generator.eval()
-            mapping_network.eval()
             with torch.no_grad():
-                w = [
-                    mapping_network.get_w(
-                        1, n_gen_style_blocks, device, mix_styles=True
-                    )
-                    for _ in range(3)
-                ]
-
                 if CONFIG["batch_size"] < 8:
                     shoeprint_images = [
                         next(shoeprint_iter).to(device)
@@ -495,16 +309,13 @@ def main():
                     column_images = []
                     column_images.append(shoeprint_images[column][None, ...])
 
-                    for row in range(3):
-                        row_image = generator.generate_images(
-                            1, shoeprint_images[column], w[row], device
-                        )
+                    for _ in range(3):
+                        row_image = generator(shoeprint_images[column][None, ...])
                         column_images.append(row_image)
 
                     shoemark_images.append(column_images)
 
             generator.train()
-            mapping_network.train()
 
             save_grid(step + 1, shoemark_images)
 

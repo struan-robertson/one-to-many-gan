@@ -11,6 +11,7 @@ compile_ = functools.partial(
     torch.compile,
     fullgraph=True,
 )
+# compile_ = lambda x: x
 
 
 def save_grid(step: int, images: list[list[torch.Tensor]]):
@@ -51,6 +52,7 @@ class Logger:
 
     def __init__(self, training_steps: int):
         self.n_steps = 0
+        self.print_steps = 0
         self.training_steps = training_steps
 
         self.initialise_trackers()
@@ -67,9 +69,10 @@ class Logger:
 
     def step(self):
         self.n_steps += 1
+        self.print_steps += 1
 
     def print(self):
-        calc_mean = lambda x: x / self.n_steps
+        calc_mean = lambda x: x / self.print_steps
 
         string = (
             f"Step: {self.n_steps}/{self.training_steps}, "
@@ -84,5 +87,6 @@ class Logger:
         )
 
         self.initialise_trackers()
+        self.print_steps = 0
 
         return string

@@ -82,7 +82,7 @@ class PathLengthPenalty(nn.Module):
 # * Adaptive Discriminator Augmentation
 
 
-# Can't compile this as it has many calls to other libraries, such as scipy
+# Can't compile this
 class ADAp:
     """Adaptive discriminator augmentation state."""
 
@@ -102,13 +102,13 @@ class ADAp:
 
         self.p = torch.zeros(())
         self.curr_batch = 0
-        self.d_signs = []
+        self.mean_real_scores = []
 
-    def update_p(self, d_train_sign: torch.Tensor):
+    def update_p(self, mean_score: torch.Tensor):
         if self.curr_batch == self.n_batches:
-            self.d_signs.append(d_train_sign)
+            self.mean_real_scores.append(mean_score)
 
-            mean_sign = torch.mean(torch.cat(self.d_signs))
+            mean_sign = torch.mean(torch.stack(self.mean_real_scores))
 
             if mean_sign < self.overfitting_target:
                 self.p -= self.ada_adjustment
@@ -116,35 +116,18 @@ class ADAp:
                 self.p += self.ada_adjustment
 
             self.curr_batch = 0
-            self.d_signs = []
+            self.mean_real_scores = []
 
             self.p = nn.functional.relu(self.p, inplace=True)
 
         self.curr_batch += 1
-        self.d_signs.append(d_train_sign)
+        self.mean_real_scores.append(mean_score)
 
     def __call__(self):
         return self.p
 
 
 # * Loss Functions
-
-
-@compile_
-def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
-    """Calculate discriminator loss on real and fake batches."""
-    # Training seems a lot more stable if we keep discriminator loss
-    # mostly above 0
-    return (
-        F.leaky_relu(-f_real, negative_slope=0.05).mean()
-        + F.leaky_relu(f_fake, negative_slope=0.05).mean()
-    )
-
-
-@compile_
-def generator_loss(f_fake: torch.Tensor):
-    """Calculate generator loss for generated fake batch."""
-    return -f_fake.mean()
 
 
 @compile_

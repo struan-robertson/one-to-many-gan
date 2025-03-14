@@ -53,6 +53,8 @@ class EqualisedConv2d(nn.Module):
         stride: int = 1,
         padding: int = 0,
         dilation: int = 1,
+        *,
+        use_bias: bool = True,
     ):
         super().__init__()
 
@@ -71,17 +73,32 @@ class EqualisedConv2d(nn.Module):
         self.weight = EqualisedWeight(
             [out_features, in_features, kernel_height, kernel_width]
         )
-        self.bias = nn.Parameter(torch.ones(out_features))
+
+        self.use_bias = use_bias
+        if use_bias:
+            self.bias = nn.Parameter(torch.ones(out_features))
 
     def forward(self, x: torch.Tensor):
-        return F.conv2d(
-            x,
-            self.weight(),
-            bias=self.bias,
-            stride=self.stride,
-            padding=self.padding,
-            dilation=self.dilation,
-        )
+        if self.use_bias:
+            x = F.conv2d(
+                x,
+                self.weight(),
+                bias=self.bias,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+            )
+
+        else:
+            x = F.conv2d(
+                x,
+                self.weight(),
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+            )
+
+        return x
 
     def extra_repr(self):
         return (
@@ -98,8 +115,10 @@ class Conv2dWeightModulate(nn.Module):
         in_features: int,
         out_features: int,
         kernel_size: int,
+        padding: int,
         *,
-        demodulate: float = True,
+        use_bias: bool = False,
+        demodulate: bool = True,
         eps: float = 1e-8,
     ):
         super().__init__()
@@ -107,11 +126,15 @@ class Conv2dWeightModulate(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.demodulate = demodulate
-        self.padding = (kernel_size - 1) // 2
+        self.padding = padding
         self.weight = EqualisedWeight(
             [out_features, in_features, kernel_size, kernel_size]
         )
         self.eps = eps
+        self.use_bias = use_bias
+
+        if use_bias:
+            self.bias = nn.Parameter(torch.)
 
     def forward(self, x: torch.Tensor, s: torch.Tensor):
         b, _, h, w = x.shape
@@ -184,22 +207,21 @@ class UpSample(nn.Module):
         self.smooth = Smooth()
 
     def forward(self, x: torch.Tensor):
-        # return self.smooth(self.up_sample(x))
-        return self.up_sample(x)
+        return self.smooth(self.up_sample(x))
 
 
 class DownSample(nn.Module):
     """Smooths each feature and then scales down by 2x."""
 
-    def __init__(self, smooth=True):
+    def __init__(self, *, smooth=True):
         super().__init__()
 
         self.smooth_map = smooth
         self.smooth = Smooth()
 
     def forward(self, x: torch.Tensor):
-        # if self.smooth_map:
-        #     x = self.smooth(x)
+        if self.smooth_map:
+            x = self.smooth(x)
 
         return F.interpolate(
             x, (x.shape[2] // 2, x.shape[3] // 2), mode="bilinear", align_corners=False

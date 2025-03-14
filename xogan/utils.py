@@ -62,6 +62,7 @@ class Logger:
         self.log_disc_real_acc = 0.0
         self.log_disc_fake_acc = 0.0
         self.log_gen_loss = 0.0
+        self.log_style_loss = 0.0
         self.log_siamese_loss = 0.0
         self.log_siamese_positive_accuracy = 0.0
         self.log_siamese_negative_accuracy = 0.0
@@ -76,10 +77,11 @@ class Logger:
 
         string = (
             f"Step: {self.n_steps}/{self.training_steps}, "
-            f"G loss: {calc_mean(self.log_gen_loss):.6g}, "
             f"D loss: {calc_mean(self.log_disc_losses):.6g}, "
             f"D real/fake acc: {calc_mean(self.log_disc_real_acc):.6g}"
             f"/{calc_mean(self.log_disc_fake_acc):.6g}, "
+            f"G loss: {calc_mean(self.log_gen_loss):.6g}, "
+            f"Style loss: {calc_mean(self.log_style_loss):.6g}, "
             f"ADA: {calc_mean(self.log_ada_p):.6g}, "
             f"S loss: {calc_mean(self.log_siamese_loss):.6g}, "
             f"S positive/negative acc {calc_mean(self.log_siamese_positive_accuracy):.6g}"

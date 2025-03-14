@@ -76,7 +76,7 @@ class EqualisedConv2d(nn.Module):
 
         self.use_bias = use_bias
         if use_bias:
-            self.bias = nn.Parameter(torch.ones(out_features))
+            self.bias = nn.Parameter(torch.zeros(out_features))
 
     def forward(self, x: torch.Tensor):
         if self.use_bias:
@@ -115,7 +115,7 @@ class Conv2dWeightModulate(nn.Module):
         in_features: int,
         out_features: int,
         kernel_size: int,
-        padding: int,
+        w_dim: int,
         *,
         use_bias: bool = False,
         demodulate: bool = True,
@@ -126,18 +126,22 @@ class Conv2dWeightModulate(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.demodulate = demodulate
-        self.padding = padding
+        self.padding = (kernel_size - 1) // 2
         self.weight = EqualisedWeight(
             [out_features, in_features, kernel_size, kernel_size]
         )
         self.eps = eps
         self.use_bias = use_bias
 
-        if use_bias:
-            self.bias = nn.Parameter(torch.)
+        self.to_style = EqualisedLinear(w_dim, in_features)
 
-    def forward(self, x: torch.Tensor, s: torch.Tensor):
-        b, _, h, w = x.shape
+        if use_bias:
+            self.bias = nn.Parameter(torch.zeros(out_features))
+
+    def forward(self, x: torch.Tensor, w: torch.Tensor):
+        b, _, height, width = x.shape
+
+        s = self.to_style(w)
 
         s = s[:, None, :, None, None]
 
@@ -152,14 +156,19 @@ class Conv2dWeightModulate(nn.Module):
 
             weights = weights * sigma_inv
 
-        x = x.reshape(1, -1, h, w)
+        x = x.reshape(1, -1, height, width)
 
         _, _, *ws = weights.shape
         weights = weights.reshape(b * self.out_features, *ws)
 
         x = F.conv2d(x, weights, padding=self.padding, groups=b)
 
-        return x.reshape(-1, self.out_features, h, w)
+        x = x.reshape(-1, self.out_features, height, width)
+
+        if self.use_bias:
+            x = x + self.bias[None, :, None, None]
+
+        return x
 
     def extra_repr(self):
         return (

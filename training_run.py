@@ -17,8 +17,9 @@ from xogan.loss import (
     ADAp,
     SiameseTripletLoss,
 )
-from xogan.santa import AdaINDiscriminator, AdaINResnetGenerator
+from xogan.santa import Discriminator, Generator, StyleExtractor
 from xogan.siamese import GlobalContextSiamese
+from xogan.stylegan2 import MappingNetwork
 from xogan.utils import Logger, save_grid
 
 # * Hyperparameters
@@ -26,11 +27,11 @@ from xogan.utils import Logger, save_grid
 CONFIG = {
     "siamese_generator_coefficient": 0.5,
     "batch_size": 16,
-    "d_latent": 8,
+    "w_dim": 8,
     "siamese_embedding_dimensions": 256,
     "image_size": (256, 128),
     "image_channels": 1,
-    "mapping_network_layers": 2,
+    "mapping_network_layers": 3,
     "learning_rate": 2e-3,
     "mapping_network_learning_rate": 2e-5,  # 100x less
     "gradient_accumulate_steps": 1,
@@ -39,7 +40,7 @@ CONFIG = {
     "siamese_steps": 1,
     "generator_bottleneck_resolution": (16, 8),
     "generator_bottleneck_blocks": 6,  # TODO make this 9
-    "discriminator_overfitting_target": 0.6,
+    "discriminator_overfitting_target": 0.7,
     "ada_E": 256,  # Number of images over which to take the mean discriminator overfitting
     "ada_adjustment_size": 5.12e-4,  # Adjustment amount per image, multiplied by ada_E
     "adam_betas": (0.5, 0.99),
@@ -73,10 +74,21 @@ torch._functorch.config.donated_buffer = False  # pyright: ignore[reportAttribut
 
 # ** Models
 
-discriminator = AdaINDiscriminator(input_nc=CONFIG["image_channels"]).to(device)
+discriminator = Discriminator(input_nc=CONFIG["image_channels"]).to(device)
 
-generator = AdaINResnetGenerator(input_nc=CONFIG["image_channels"]).to(device)
+generator = Generator(input_nc=CONFIG["image_channels"], w_dim=CONFIG["w_dim"]).to(
+    device
+)
 
+mapping_network = MappingNetwork(
+    features=CONFIG["w_dim"],
+    n_layers=CONFIG["mapping_network_layers"],
+    style_mixing_prob=CONFIG["style_mixing_prob"],
+).to(device)
+
+style_extractor = StyleExtractor(
+    input_nc=CONFIG["image_channels"], w_dim=CONFIG["w_dim"]
+).to(device)
 
 # ** Regularisation
 
@@ -110,6 +122,16 @@ discriminator_optimiser = torch.optim.Adam(
 
 generator_optimiser = torch.optim.Adam(
     generator.parameters(), lr=CONFIG["learning_rate"], betas=CONFIG["adam_betas"]
+)
+
+mapping_network_optimiser = torch.optim.Adam(
+    mapping_network.parameters(),
+    lr=CONFIG["mapping_network_learning_rate"],
+    betas=CONFIG["adam_betas"],
+)
+
+style_extractor_optimiser = torch.optim.Adam(
+    style_extractor.parameters(), lr=CONFIG["learning_rate"], betas=CONFIG["adam_betas"]
 )
 
 # ** Losses
@@ -171,7 +193,12 @@ def discriminator_step(step: int):
     log_fake_accuracy = torch.zeros((), device=device)
     for _ in range(CONFIG["gradient_accumulate_steps"]):
         shoeprint_images = next(shoeprint_iter).to(device)
-        generated_shoemarks = generator(shoeprint_images)
+        w = mapping_network.get_w(
+            batch_size=CONFIG["batch_size"],
+            n_gen_blocks=generator.n_style_blocks,
+            device=device,
+        )
+        generated_shoemarks = generator(shoeprint_images, w)
         augmented_fake_shoemarks = adaptive_discriminator_augmentation(
             generated_shoemarks.detach()
         )
@@ -218,11 +245,20 @@ def discriminator_step(step: int):
 def generator_step(step: int):
     """Take a step with the generator and return loss."""
     generator_optimiser.zero_grad()
+    mapping_network_optimiser.zero_grad()
+    style_extractor_optimiser.zero_grad()
 
     log_gen_loss = torch.zeros((), device=device)
+    log_style_loss = torch.zeros((), device=device)
     for _ in range(CONFIG["gradient_accumulate_steps"]):
         shoeprint_images = next(shoeprint_iter).to(device)
-        generated_shoemarks = generator(shoeprint_images)
+        w = mapping_network.get_w(
+            batch_size=CONFIG["batch_size"],
+            n_gen_blocks=generator.n_style_blocks,
+            device=device,
+        )
+
+        generated_shoemarks = generator(shoeprint_images, w)
 
         augmented_generated_images = adaptive_discriminator_augmentation(
             generated_shoemarks
@@ -234,15 +270,37 @@ def generator_step(step: int):
             fake_shoemark_scores, torch.ones_like(fake_shoemark_scores)
         )
 
+        # Style vector cycle consistency loss
+        # TODO extract to separate function
+        # Style vector should be (theoretically) disentangled, so cosine distance makes sense
+        # here
+        reconstructed_w = style_extractor(generated_shoemarks)
+        # Only last style vector is useful here
+        original_w = w[-1]
+
+        # Normalise
+        norm_rec_w = F.normalize(reconstructed_w, dim=-1)
+        norm_orig_w = F.normalize(original_w, dim=-1)
+
+        # Calculate cycle loss
+        cos_loss = 1 - F.cosine_similarity(norm_orig_w, norm_rec_w, dim=-1).mean()
+        l2_loss = F.mse_loss(norm_orig_w, norm_rec_w)
+        cycle_loss = cos_loss + 0.1 * l2_loss
+        log_style_loss += cycle_loss
+
+        gen_loss += cycle_loss * 0.5
+
         log_gen_loss += gen_loss
 
         gen_loss.backward()
 
     generator_optimiser.step()
+    mapping_network_optimiser.step()
+    style_extractor_optimiser.step()
 
     log_gen_loss /= CONFIG["gradient_accumulate_steps"]
 
-    return log_gen_loss.detach().cpu().numpy()
+    return log_gen_loss.detach().cpu().numpy(), (log_style_loss.detach().cpu().numpy())
 
 
 # ** Main Loop
@@ -273,13 +331,14 @@ def main():
         logger.log_disc_fake_acc += np.mean(disc_fake_accuracies).item()
 
         gen_losses = []
+        style_losses = []
         for _ in range(CONFIG["generator_steps"]):
-            gen_loss = generator_step(step)
+            gen_loss, (style_loss) = generator_step(step)
             gen_losses.append(gen_loss)
+            style_losses.append(style_loss)
 
         logger.log_gen_loss += np.mean(gen_losses).item()
-
-        # Logging
+        logger.log_style_loss += np.mean(style_losses).item()
 
         if (step + 1) % CONFIG["log_generated_interval"] == 0 or (step + 1) == CONFIG[
             "training_steps"
@@ -291,7 +350,17 @@ def main():
         ]:
             # Generate images
             generator.eval()
+            mapping_network.eval()
             with torch.no_grad():
+                w = [
+                    mapping_network.get_w(
+                        batch_size=1,
+                        n_gen_blocks=generator.n_style_blocks,
+                        device=device,
+                        mix_styles=False,
+                    )
+                    for _ in range(3)
+                ]
                 if CONFIG["batch_size"] < 8:
                     shoeprint_images = [
                         next(shoeprint_iter).to(device)
@@ -309,13 +378,16 @@ def main():
                     column_images = []
                     column_images.append(shoeprint_images[column][None, ...])
 
-                    for _ in range(3):
-                        row_image = generator(shoeprint_images[column][None, ...])
+                    for row in range(3):
+                        row_image = generator(
+                            shoeprint_images[column][None, ...], w[row]
+                        )
                         column_images.append(row_image)
 
                     shoemark_images.append(column_images)
 
             generator.train()
+            mapping_network.train()
 
             save_grid(step + 1, shoemark_images)
 

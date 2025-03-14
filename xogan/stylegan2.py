@@ -242,9 +242,9 @@ class Discriminator(nn.Module):
         final_features = features[-1] + 1  # Account for standard deviation feature
 
         self.conv = EqualisedConv2d(
-            final_features, final_features, kernel_size=(7, 3)
+            final_features, final_features, kernel_size=(3, 3)
         )  # 7, 3
-        self.final = EqualisedLinear(2 * 2 * final_features, 1)
+        self.final = EqualisedLinear(3 * 2 * 2 * final_features, 1)
 
     def forward(self, x: torch.Tensor):
         # Optionally normalise input image

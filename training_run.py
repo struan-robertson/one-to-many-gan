@@ -29,13 +29,13 @@ from xogan.utils import Logger, save_grid
 CONFIG = {
     "gradient_penalty_coeficcient": 10.0,
     "path_length_penalty_coeficcient": 0.99,
-    "siamese_generator_coefficient": 0.2,
+    "siamese_generator_coefficient": 0.5,
     "batch_size": 16,
-    "d_latent": 64,
+    "d_latent": 128,
     "siamese_embedding_dimensions": 256,
-    "image_size": (256, 128),
+    "image_size": (128, 64),
     "image_channels": 1,
-    "mapping_network_layers": 4,
+    "mapping_network_layers": 6,
     "learning_rate": 1e-3,
     "mapping_network_learning_rate": 1e-5,  # 100x less
     "gradient_accumulate_steps": 1,
@@ -43,7 +43,7 @@ CONFIG = {
     "generator_steps": 1,
     "siamese_steps": 1,
     "generator_bottleneck_resolution": (16, 8),
-    "generator_bottleneck_blocks": 6,
+    "generator_bottleneck_blocks": 6,  # TODO make this 9
     "discriminator_overfitting_target": 0.6,
     "ada_E": 256,  # Number of images over which to take the mean discriminator overfitting
     "ada_adjustment_size": 5.12e-4,  # Adjustment amount per image, multiplied by ada_E
@@ -311,18 +311,16 @@ def generator_step(step: int):
 
         gen_loss = generator_loss(fake_shoemarks_score)
 
-        # TODO add ADA
-        anchor = shoeprint_images
-        positive = generated_shoemarks
-        negative = next(shoemark_iter).to(device)
+        # anchor = shoeprint_images
+        # positive = generated_shoemarks
+        # negative = next(shoemark_iter).to(device)
 
-        anchor_emb = shoeprint_siamese(anchor)
-        positive_emb = shoemark_siamese(positive)
-        negative_emb = shoemark_siamese(negative)
+        # anchor_emb = shoeprint_siamese(anchor)
+        # positive_emb = shoemark_siamese(positive)
+        # negative_emb = shoemark_siamese(negative)
 
-        siamese_loss, _ = triplet_loss(anchor_emb, positive_emb, negative_emb)
-
-        gen_loss += siamese_loss * CONFIG["siamese_generator_coefficient"]
+        # siamese_loss, _ = triplet_loss(anchor_emb, positive_emb, negative_emb)
+        # gen_loss += siamese_loss * CONFIG["siamese_generator_coefficient"]
 
         if (
             step > CONFIG["lazy_path_penalty_after"]
@@ -383,22 +381,17 @@ def siamese_step():
 
         log_siamese_loss += siamese_loss
 
-        # TODO, maybe use euclidean distance here
-        # closer to 0 means overfitting
-        positive_similarities = F.cosine_similarity(norm_anchor_emb, norm_positive_emb)
-        negative_similarities = F.cosine_similarity(norm_anchor_emb, norm_negative_emb)
+        positive_similarities = torch.norm(
+            norm_anchor_emb - norm_positive_emb, p=2, dim=1
+        )
+        negative_similarities = torch.norm(
+            norm_anchor_emb - norm_negative_emb, p=2, dim=1
+        )
 
-        log_siamese_positive_accuracy += torch.mean(
-            torch.sign(positive_similarities.detach())
-        )
-        log_siamese_negative_accuracy += torch.mean(
-            torch.sign(negative_similarities.detach())
-        )
+        log_siamese_positive_accuracy += torch.mean(positive_similarities.detach())
+        log_siamese_negative_accuracy += torch.mean(negative_similarities.detach())
 
         siamese_loss.backward()
-
-    torch.nn.utils.clip_grad_norm_(shoemark_siamese.parameters(), max_norm=1.0)
-    torch.nn.utils.clip_grad_norm_(shoeprint_siamese.parameters(), max_norm=1.0)
 
     shoeprint_siamese_optimiser.step()
     shoemark_siamese_optimiser.step()
@@ -447,22 +440,22 @@ def main():
 
         logger.log_gen_loss += np.mean(gen_losses).item()
 
-        siamese_losses = []
-        siamese_positive_accuracies = []
-        siamese_negative_accuracies = []
-        for _ in range(CONFIG["siamese_steps"]):
-            siamese_loss, (siamese_positive_acc, siamese_negative_acc) = siamese_step()
-            siamese_losses.append(siamese_loss)
-            siamese_positive_accuracies.append(siamese_positive_acc)
-            siamese_negative_accuracies.append(siamese_negative_acc)
+        # siamese_losses = []
+        # siamese_positive_accuracies = []
+        # siamese_negative_accuracies = []
+        # for _ in range(CONFIG["siamese_steps"]):
+        #     siamese_loss, (siamese_positive_acc, siamese_negative_acc) = siamese_step()
+        #     siamese_losses.append(siamese_loss)
+        #     siamese_positive_accuracies.append(siamese_positive_acc)
+        #     siamese_negative_accuracies.append(siamese_negative_acc)
 
-        logger.log_siamese_loss += np.mean(siamese_losses).item()
-        logger.log_siamese_positive_accuracy += np.mean(
-            siamese_positive_accuracies
-        ).item()
-        logger.log_siamese_negative_accuracy += np.mean(
-            siamese_negative_accuracies
-        ).item()
+        # logger.log_siamese_loss += np.mean(siamese_losses).item()
+        # logger.log_siamese_positive_accuracy += np.mean(
+        #     siamese_positive_accuracies
+        # ).item()
+        # logger.log_siamese_negative_accuracy += np.mean(
+        #     siamese_negative_accuracies
+        # ).item()
 
         # Logging
 
@@ -480,7 +473,7 @@ def main():
             with torch.no_grad():
                 w = [
                     mapping_network.get_w(
-                        1, n_gen_style_blocks, device, mix_styles=False
+                        1, n_gen_style_blocks, device, mix_styles=True
                     )
                     for _ in range(3)
                 ]

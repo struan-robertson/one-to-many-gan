@@ -132,18 +132,19 @@ class ADAp:
 
 @compile_
 def discriminator_loss(f_real: torch.Tensor, f_fake: torch.Tensor):
-    """Calculate discriminator loss on real and fake batches.
-
-    This is kept separate to allow logging both losses."""
-    # Use ReLUs to clip the loss to keep f in [-1, +1] range
-    return F.relu(-f_real).mean() + F.relu(f_fake).mean()
+    """Calculate discriminator loss on real and fake batches."""
+    # Training seems a lot more stable if we keep discriminator loss
+    # mostly above 0
+    return (
+        F.leaky_relu(-f_real, negative_slope=0.05).mean()
+        + F.leaky_relu(f_fake, negative_slope=0.05).mean()
+    )
 
 
 @compile_
 def generator_loss(f_fake: torch.Tensor):
     """Calculate generator loss for generated fake batch."""
     return -f_fake.mean()
-    # return F.relu(-f_fake).mean()
 
 
 @compile_

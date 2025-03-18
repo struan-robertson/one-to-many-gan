@@ -1,6 +1,7 @@
 """Miscellaneous utility functions."""
 
 import functools
+import random
 from pathlib import Path
 
 import torch
@@ -11,7 +12,6 @@ compile_ = functools.partial(
     torch.compile,
     fullgraph=True,
 )
-# compile_ = lambda x: x
 
 
 def save_grid(step: int, images: list[list[torch.Tensor]]):
@@ -63,9 +63,6 @@ class Logger:
         self.log_disc_fake_acc = 0.0
         self.log_gen_loss = 0.0
         self.log_style_loss = 0.0
-        self.log_siamese_loss = 0.0
-        self.log_siamese_positive_accuracy = 0.0
-        self.log_siamese_negative_accuracy = 0.0
         self.log_ada_p = 0.0
 
     def step(self):
@@ -83,12 +80,61 @@ class Logger:
             f"G loss: {calc_mean(self.log_gen_loss):.6g}, "
             f"Style loss: {calc_mean(self.log_style_loss):.6g}, "
             f"ADA: {calc_mean(self.log_ada_p):.6g}, "
-            f"S loss: {calc_mean(self.log_siamese_loss):.6g}, "
-            f"S positive/negative acc {calc_mean(self.log_siamese_positive_accuracy):.6g}"
-            f"/{calc_mean(self.log_siamese_negative_accuracy):.6g}"
         )
 
         self.initialise_trackers()
         self.print_steps = 0
 
         return string
+
+
+class ImageBuffer:
+    """An image buffer that stores previously generated images.
+
+    This buffer enables us to update discriminators using a history of generated images
+    rather than the ones produced by the latest generators.
+    """
+
+    buffer_size: int
+    num_imgs: int
+    images: list[torch.Tensor]
+    styles: list[torch.Tensor]
+
+    def __init__(self, pool_size: int):
+        self.buffer_size = pool_size
+
+        if self.buffer_size < 1:
+            raise ValueError
+
+        self.num_imgs = 0
+        self.images = []
+
+    def __call__(self, images: torch.Tensor, styles: torch.Tensor):
+        return_images = []
+        return_styles = []
+
+        for image, style in zip(images, styles, strict=True):
+            # Fill buffer if it is not full
+            if self.num_imgs < self.buffer_size:
+                self.num_imgs += 1
+                self.images.append(image)
+                self.styles.append(style)
+                return_images.append(image)
+            else:
+                p = random.uniform(0, 1)
+                if p > 0.5:
+                    random_id = random.randint(
+                        0, self.buffer_size - 1
+                    )  # randint is inclusive
+                    # Clone tensors as they may be used many times
+                    cloned_image = self.images[random_id].clone()
+                    cloned_style = self.styles[random_id].clone()
+                    self.images[random_id] = image
+                    self.styles[random_id] = style
+                    return_images.append(cloned_image)
+                    return_styles.append(cloned_style)
+                else:
+                    return_images.append(image)
+                    return_styles.append(style)
+
+        return torch.stack(return_images, 0), torch.stack(return_styles, 0)

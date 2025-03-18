@@ -2,50 +2,41 @@
 
 import itertools
 import math
-from typing import cast
 
 import numpy as np
 import torch
 import torch.utils.data
 from ada import AdaptiveDiscriminatorAugmentation
+from src.data import ShoeDataset
+from src.loss import ADAp, style_cycle_loss
+from src.models import Discriminator, Generator, MappingNetwork, StyleExtractor
+from src.utils import ImageBuffer, Logger, save_grid
 from torch import nn
-from torch.nn import functional as F
 from torchvision import transforms
 from tqdm import tqdm
-from xogan.data import Edges2ShoesDataset, ShoeDataset
-from xogan.loss import (
-    ADAp,
-    SiameseTripletLoss,
-)
-from xogan.santa import Discriminator, Generator, StyleExtractor
-from xogan.siamese import GlobalContextSiamese
-from xogan.stylegan2 import MappingNetwork
-from xogan.utils import Logger, save_grid
 
 # * Hyperparameters
 
 CONFIG = {
-    "siamese_generator_coefficient": 0.5,
-    "batch_size": 16,
-    "w_dim": 8,
-    "siamese_embedding_dimensions": 256,
-    "image_size": (256, 128),
+    "style_clycle_loss_lambda": 0.5,
+    "batch_size": 64,
+    "w_dim": 16,
+    "image_size": (128, 64),
     "image_channels": 1,
-    "mapping_network_layers": 3,
+    "image_buffer_pool_size": 100,
+    "mapping_network_layers": 4,
     "learning_rate": 2e-3,
     "mapping_network_learning_rate": 2e-5,  # 100x less
     "gradient_accumulate_steps": 1,
     "discriminator_steps": 1,
     "generator_steps": 1,
-    "siamese_steps": 1,
-    "generator_bottleneck_resolution": (16, 8),
-    "generator_bottleneck_blocks": 6,  # TODO make this 9
-    "discriminator_overfitting_target": 0.7,
+    "generator_bottleneck_resolution": (16, 8),  # FIXME this currently does nothing
+    "generator_bottleneck_blocks": 6,  # FIXME this currently does nothing
+    "discriminator_overfitting_target": 0.6,
     "ada_E": 256,  # Number of images over which to take the mean discriminator overfitting
     "ada_adjustment_size": 5.12e-4,  # Adjustment amount per image, multiplied by ada_E
     "adam_betas": (0.5, 0.99),
     "style_mixing_prob": 0.9,
-    "triplet_loss_margin": 0.8,
     "training_steps": 1_000_000,
     "log_generated_interval": 500,
     "save_checkpoint_interval": 1_000,
@@ -175,8 +166,10 @@ shoeprint_dataloader = torch.utils.data.DataLoader(
 shoemark_iter = itertools.cycle(shoemark_dataloader)
 shoeprint_iter = itertools.cycle(shoeprint_dataloader)
 
+image_buffer = ImageBuffer(pool_size=CONFIG["image_buffer_pool_size"])
 
 # ** Logging
+
 logger = Logger(CONFIG["training_steps"])
 
 # * Training Loop
@@ -184,13 +177,17 @@ logger = Logger(CONFIG["training_steps"])
 # ** Discriminator
 
 
-def discriminator_step(step: int):
+def discriminator_step():
     """Take a step with the discriminator and return loss."""
     discriminator_optimiser.zero_grad()
 
     log_disc_loss = torch.zeros((), device=device)
     log_real_accuracy = torch.zeros((), device=device)
     log_fake_accuracy = torch.zeros((), device=device)
+
+    # Scale from [0,1] to [-1,1] and then take sign as indication of judgement
+    discriminator_confidence = lambda scores: torch.sign(scores * 2 - 1).mean()
+
     for _ in range(CONFIG["gradient_accumulate_steps"]):
         shoeprint_images = next(shoeprint_iter).to(device)
         w = mapping_network.get_w(
@@ -199,8 +196,9 @@ def discriminator_step(step: int):
             device=device,
         )
         generated_shoemarks = generator(shoeprint_images, w)
+        buffered_shoemarks, _ = image_buffer(generated_shoemarks, w[-1])
         augmented_fake_shoemarks = adaptive_discriminator_augmentation(
-            generated_shoemarks.detach()
+            buffered_shoemarks.detach()
         )
         fake_scores = discriminator(augmented_fake_shoemarks)
 
@@ -213,15 +211,13 @@ def discriminator_step(step: int):
 
         disc_loss = (real_loss + fake_loss) / 2
 
-        mean_real_score = real_scores.detach().mean()
-        mean_fake_score = fake_scores.detach().mean()
+        sign_real = discriminator_confidence(real_scores.detach())
+        sign_fake = discriminator_confidence(fake_scores.detach()) * -1
         # r_t for adaptive discriminator normalisation
-        log_real_accuracy += mean_real_score
-
+        log_real_accuracy += sign_real
+        log_fake_accuracy += sign_fake
         # Update ADA p value
-        ada_p.update_p(mean_real_score)
-
-        log_fake_accuracy += mean_fake_score
+        ada_p.update_p(sign_real)
 
         log_disc_loss += disc_loss
 
@@ -242,7 +238,7 @@ def discriminator_step(step: int):
 # ** Generator
 
 
-def generator_step(step: int):
+def generator_step():
     """Take a step with the generator and return loss."""
     generator_optimiser.zero_grad()
     mapping_network_optimiser.zero_grad()
@@ -250,6 +246,7 @@ def generator_step(step: int):
 
     log_gen_loss = torch.zeros((), device=device)
     log_style_loss = torch.zeros((), device=device)
+
     for _ in range(CONFIG["gradient_accumulate_steps"]):
         shoeprint_images = next(shoeprint_iter).to(device)
         w = mapping_network.get_w(
@@ -257,39 +254,23 @@ def generator_step(step: int):
             n_gen_blocks=generator.n_style_blocks,
             device=device,
         )
-
         generated_shoemarks = generator(shoeprint_images, w)
-
         augmented_generated_images = adaptive_discriminator_augmentation(
             generated_shoemarks
         )
         fake_shoemark_scores = discriminator(augmented_generated_images)
 
-        # Non-saturating loss
         gen_loss = criterion(
             fake_shoemark_scores, torch.ones_like(fake_shoemark_scores)
         )
 
         # Style vector cycle consistency loss
-        # TODO extract to separate function
-        # Style vector should be (theoretically) disentangled, so cosine distance makes sense
-        # here
-        reconstructed_w = style_extractor(generated_shoemarks)
-        # Only last style vector is useful here
-        original_w = w[-1]
+        # Use image buffer to stop collusion between generator and style_extractor
+        buffered_shoemarks, buffered_w = image_buffer(generated_shoemarks, w[-1])
+        reconstructed_w = style_extractor(buffered_shoemarks)
 
-        # Normalise
-        norm_rec_w = F.normalize(reconstructed_w, dim=-1)
-        norm_orig_w = F.normalize(original_w, dim=-1)
-
-        # Calculate cycle loss
-        cos_loss = 1 - F.cosine_similarity(norm_orig_w, norm_rec_w, dim=-1).mean()
-        l2_loss = F.mse_loss(norm_orig_w, norm_rec_w)
-        cycle_loss = cos_loss + 0.1 * l2_loss
-        log_style_loss += cycle_loss
-
-        gen_loss += cycle_loss * 0.5
-
+        cycle_loss = style_cycle_loss(buffered_w, reconstructed_w)
+        gen_loss += cycle_loss * CONFIG["style_clycle_loss_lambda"]
         log_gen_loss += gen_loss
 
         gen_loss.backward()
@@ -317,11 +298,12 @@ def main():
         adaptive_discriminator_augmentation.set_p(ada_p().item())
         logger.log_ada_p += ada_p().item()
 
+        # Train discriminator
         disc_losses = []
         disc_real_accuracies = []
         disc_fake_accuracies = []
         for _ in range(CONFIG["discriminator_steps"]):
-            disc_loss, (real_accuracy, fake_accuracy) = discriminator_step(step)
+            disc_loss, (real_accuracy, fake_accuracy) = discriminator_step()
             disc_losses.append(disc_loss)
             disc_real_accuracies.append(real_accuracy)
             disc_fake_accuracies.append(fake_accuracy)
@@ -330,10 +312,11 @@ def main():
         logger.log_disc_real_acc += np.mean(disc_real_accuracies).item()
         logger.log_disc_fake_acc += np.mean(disc_fake_accuracies).item()
 
+        # Train generator
         gen_losses = []
         style_losses = []
         for _ in range(CONFIG["generator_steps"]):
-            gen_loss, (style_loss) = generator_step(step)
+            gen_loss, (style_loss) = generator_step()
             gen_losses.append(gen_loss)
             style_losses.append(style_loss)
 
@@ -366,7 +349,6 @@ def main():
                         next(shoeprint_iter).to(device)
                         for _ in range(math.ceil(CONFIG["batch_size"] / 8))
                     ]
-
                     shoeprint_images = torch.cat(shoeprint_images)
                 else:
                     shoeprint_images = next(shoeprint_iter).to(device)

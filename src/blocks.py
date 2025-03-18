@@ -1,0 +1,103 @@
+"""Blocks from which to construct full models."""
+
+from typing import Literal
+
+import torch
+from torch import nn
+
+from .layers import Conv2dWeightModulate, EqualisedConv2d
+
+
+class ResnetBlock(nn.Module):
+    """Define a Resnet block."""
+
+    def __init__(
+        self,
+        dim: int,
+        padding_type: Literal["reflect", "replicate", "zero"],
+        *,
+        use_dropout: bool = False,
+        use_bias: bool = False,
+    ):
+        super().__init__()
+
+        conv_block = []
+        p = 0
+
+        if padding_type == "reflect":
+            conv_block += [nn.ReflectionPad2d(1)]
+        elif padding_type == "replicate":
+            conv_block += [nn.ReplicationPad2d(1)]
+        elif padding_type == "zero":
+            p = 1
+
+        conv_block += [
+            EqualisedConv2d(dim, dim, kernel_size=3, padding=p, use_bias=use_bias),
+            nn.InstanceNorm2d(dim),
+            nn.ReLU(inplace=True),
+        ]
+        if use_dropout:
+            conv_block += [nn.Dropout(0.5)]
+
+        p = 0
+        if padding_type == "reflect":
+            conv_block += [nn.ReflectionPad2d(1)]
+        elif padding_type == "replicate":
+            conv_block += [nn.ReplicationPad2d(1)]
+        elif padding_type == "zero":
+            p = 1
+
+        conv_block += [
+            EqualisedConv2d(dim, dim, kernel_size=3, padding=p, use_bias=use_bias),
+            nn.InstanceNorm2d(dim),
+        ]
+
+        self.conv_block = nn.Sequential(*conv_block)
+
+    def forward(self, x: torch.Tensor):
+        return x + self.conv_block(x)
+
+
+class ModulatedResnetBlock(nn.Module):
+    """Resnet block with weight modulation."""
+
+    def __init__(
+        self,
+        dim: int,
+        w_dim: int,
+        *,
+        use_dropout: bool = False,
+        use_bias: bool = False,
+    ):
+        super().__init__()
+
+        conv_block = []
+        conv_block += [
+            Conv2dWeightModulate(
+                dim, dim, w_dim=w_dim, kernel_size=3, use_bias=use_bias
+            ),
+            nn.ReLU(inplace=True),
+        ]
+        if use_dropout:
+            conv_block += [nn.Dropout(0.5)]
+
+        conv_block += [
+            Conv2dWeightModulate(
+                dim, dim, w_dim=w_dim, kernel_size=3, use_bias=use_bias
+            ),
+        ]
+
+        self.conv_block = nn.ModuleList(conv_block)
+
+    def forward(self, x: torch.Tensor, w: torch.Tensor):
+        residual = x
+
+        for block in self.conv_block:
+            x = block(x, w) if isinstance(block, Conv2dWeightModulate) else block(x)
+
+        return residual + x
+
+
+# Local Variables:
+# jinx-local-words: "stddev"
+# End:

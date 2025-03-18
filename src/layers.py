@@ -1,6 +1,7 @@
 """Basic layers for StyleGAN model."""
 
 import math
+from typing import cast
 
 import numpy as np
 import torch
@@ -189,8 +190,8 @@ class Smooth(nn.Module):
 
         kernel /= kernel.sum()
 
-        # TODO try this with registering a buffer to see if it works as well
-        self.kernel = nn.Parameter(kernel, requires_grad=False)
+        self.register_buffer("kernel", kernel)
+        self.kernel = cast(torch.Tensor, self.kernel)
         self.pad = nn.ReplicationPad2d(1)
 
     def forward(self, x: torch.Tensor):
@@ -209,7 +210,6 @@ class UpSample(nn.Module):
     def __init__(self):
         super().__init__()
 
-        # TODO investigate how this is different than F.interpolate
         self.up_sample = nn.Upsample(
             scale_factor=2, mode="bilinear", align_corners=False
         )

@@ -1,114 +1,64 @@
-"""AdaIN Santa model from https://github.com/Mid-Push/santa/."""
-
-from typing import Literal
+"""Different models used in overall architecture."""
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
-from .layers import (
-    Conv2dWeightModulate,
-    DownSample,
-    EqualisedConv2d,
-    EqualisedLinear,
-    UpSample,
-)
+from .blocks import Conv2dWeightModulate, ModulatedResnetBlock, ResnetBlock
+from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
 from .utils import compile_
 
 
 @compile_
-class ResnetBlock(nn.Module):
-    """Define a Resnet block."""
+class MappingNetwork(nn.Module):
+    """Maps from latent vector z to intermediate latent vector w."""
 
-    def __init__(
-        self,
-        dim: int,
-        padding_type: Literal["reflect", "replicate", "zero"],
-        *,
-        use_dropout: bool = False,
-        use_bias: bool = False,
-    ):
+    def __init__(self, features: int, n_layers: int, style_mixing_prob: float):
         super().__init__()
 
-        conv_block = []
-        p = 0
+        self.d_latent = features
+        self.style_mixing_prob = style_mixing_prob
 
-        if padding_type == "reflect":
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == "replicate":
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == "zero":
-            p = 1
-        else:
-            err = f"padding {padding_type} is not implemented"
-            raise NotImplementedError(err)
+        layers = []
+        for _ in range(n_layers):
+            layers.append(EqualisedLinear(features, features))
+            layers.append(nn.LeakyReLU(negative_slope=0.2, inplace=True))
 
-        conv_block += [
-            EqualisedConv2d(dim, dim, kernel_size=3, padding=p, use_bias=use_bias),
-            nn.InstanceNorm2d(dim),
-            nn.ReLU(inplace=True),
-        ]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
+        self.net = nn.Sequential(*layers)
 
-        p = 0
-        if padding_type == "reflect":
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == "replicate":
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == "zero":
-            p = 1
-        else:
-            err = f"padding {padding_type} is not implemented"
-            raise NotImplementedError(err)
-        conv_block += [
-            EqualisedConv2d(dim, dim, kernel_size=3, padding=p, use_bias=use_bias),
-            nn.InstanceNorm2d(dim),
-        ]
+    def forward(self, z: torch.Tensor):
+        z = F.normalize(z, dim=1)
 
-        self.conv_block = nn.Sequential(*conv_block)
+        return self.net(z)
 
-    def forward(self, x: torch.Tensor):
-        return x + self.conv_block(x)  # Residual connection
-
-
-class ModulatedResnetBlock(nn.Module):
-    """Resnet block with weight modulation."""
-
-    def __init__(
+    def get_w(
         self,
-        dim: int,
-        w_dim: int,
+        batch_size: int,
+        n_gen_blocks: int,
+        device: str | int,
         *,
-        use_dropout: bool = False,
-        use_bias: bool = False,
+        mix_styles=True,
     ):
-        super().__init__()
+        """Sample z randomly and get w from mapping network.
 
-        conv_block = []
-        conv_block += [
-            Conv2dWeightModulate(
-                dim, dim, w_dim=w_dim, kernel_size=3, use_bias=use_bias
-            ),
-            nn.ReLU(inplace=True),
-        ]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
+        Style mixing is also applied randomly."""
+        if torch.rand(()).lt(self.style_mixing_prob) and mix_styles:
+            cross_over_point = torch.randint(0, n_gen_blocks, ())
 
-        conv_block += [
-            Conv2dWeightModulate(
-                dim, dim, w_dim=w_dim, kernel_size=3, use_bias=use_bias
-            ),
-        ]
+            z1 = torch.randn(batch_size, self.d_latent).to(device)
+            z2 = torch.randn(batch_size, self.d_latent).to(device)
 
-        self.conv_block = nn.ModuleList(conv_block)
+            w1 = self.forward(z1)
+            w2 = self.forward(z2)
 
-    def forward(self, x: torch.Tensor, w: torch.Tensor):
-        residual = x
+            w1 = w1[None, :, :].expand(cross_over_point, -1, -1)
+            w2 = w2[None, :, :].expand(n_gen_blocks - cross_over_point, -1, -1)
+            return torch.cat((w1, w2), dim=0)
 
-        for block in self.conv_block:
-            x = block(x, w) if isinstance(block, Conv2dWeightModulate) else block(x)
+        z = torch.randn(batch_size, self.d_latent).to(device)
+        w = self.forward(z)
 
-        return residual + x
+        return w[None, :, :].expand(n_gen_blocks, -1, -1)
 
 
 @compile_
@@ -173,10 +123,9 @@ class Generator(nn.Module):
         return x
 
 
-# TODO Try discriminator as pixel gan and siamese as this
 @compile_
 class Discriminator(nn.Module):
-    """Discriminator used in Sanata paper."""
+    """Discriminator used in Santa paper."""
 
     def __init__(
         self,

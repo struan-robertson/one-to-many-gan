@@ -20,7 +20,7 @@ from tqdm import tqdm
 # * Hyperparameters
 
 CONFIG = {
-    "style_cycle_loss_lambda": 3,
+    "style_cycle_loss_lambda": 5,
     "identity_loss_lambda": 5,
     "reconstruction_loss_lambda": 5,
     "kl_loss_lambda": 0.01,
@@ -37,15 +37,15 @@ CONFIG = {
         0.1,
         0.2,
     ),  # Min and max for sampling h to approximate jacobian
-    "batch_size": 32,
+    "batch_size": 4,
     "image_buffer_size": 100,
-    "w_dim": 16,
-    "image_size": (128, 64),
+    "w_dim": 6,
+    "image_size": (512, 256),
     "image_channels": 1,
-    "mapping_network_layers": 4,
+    "mapping_network_layers": 2,
     "learning_rate": 2e-3,
     "mapping_network_learning_rate": 2e-5,  # 100x less
-    "gradient_accumulate_steps": 1,
+    "gradient_accumulate_steps": 1,  # FIXME this doesn't work, I presume because tensors have to be kept in order to perform backprop
     "discriminator_steps": 1,
     "generator_steps": 1,
     "discriminator_overfitting_target": 0.6,
@@ -324,17 +324,9 @@ def generator_step():
         )
         log_gan_loss += gan_loss
 
-        # Style vector cycle consistency loss
-        # Use image buffer to stop collusion between generator and style_extractor
-        # TODO figure out some way to back propagate this
-        p = random.uniform(0, 1)
-        if p > 0.5:
-            style_loss_shoemarks, style_loss_w = image_buffer(
-                generated_shoemarks, translation_w[-1]
-            )
-        else:
-            style_loss_shoemarks = generated_shoemarks
-            style_loss_w = translation_w[-1]
+        # Style cycle loss
+        style_loss_shoemarks = generated_shoemarks
+        style_loss_w = translation_w[-1]
         reconstructed_w = style_extractor(style_loss_shoemarks)
         style_loss = style_cycle_loss_func(style_loss_w, reconstructed_w)
         log_style_loss += style_loss
@@ -476,12 +468,12 @@ def main():
                         mix_styles=False,
                         domain_variable=1,
                     )
-                    for _ in range(3)
+                    for _ in range(8)
                 ]
                 if CONFIG["batch_size"] < 8:
                     shoeprint_images = [
                         next(shoeprint_iter).to(device)
-                        for _ in range(math.ceil(CONFIG["batch_size"] / 8))
+                        for _ in range(math.ceil(8 / CONFIG["batch_size"]))
                     ]
                     shoeprint_images = torch.cat(shoeprint_images)
                 else:
@@ -494,7 +486,7 @@ def main():
                     column_images = []
                     column_images.append(shoeprint_images[column][None, ...])
 
-                    for row in range(3):
+                    for row in range(8):
                         row_image = generator(
                             shoeprint_images[column][None, ...], w[row]
                         )

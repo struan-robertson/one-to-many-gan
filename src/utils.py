@@ -28,9 +28,9 @@ def save_grid(step: int, images: list[list[torch.Tensor]]):
 
     plt.ioff()
 
-    _, axes = plt.subplots(nrows=4, ncols=8, figsize=(8, 4))
+    _, axes = plt.subplots(nrows=9, ncols=8, figsize=(8, 9))
 
-    for row_idx in range(4):
+    for row_idx in range(9):
         for col_idx in range(8):
             axes[row_idx, col_idx].imshow(
                 images_np[col_idx][row_idx], cmap="gray"
@@ -98,6 +98,7 @@ class Logger:
         return string
 
 
+# TODO dont store style here
 class ImageBuffer:
     """An image buffer that stores previously generated images.
 

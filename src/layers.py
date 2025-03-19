@@ -134,7 +134,9 @@ class Conv2dWeightModulate(nn.Module):
         self.eps = eps
         self.use_bias = use_bias
 
-        self.to_style = EqualisedLinear(w_dim, in_features)
+        self.to_style = EqualisedLinear(
+            w_dim, in_features, bias=1
+        )  # Account for style vectors with zero values
 
         if use_bias:
             self.bias = nn.Parameter(torch.zeros(out_features))

@@ -58,10 +58,15 @@ class Logger:
         self.initialise_trackers()
 
     def initialise_trackers(self):
-        self.log_disc_losses = 0.0
+        self.log_total_disc_loss = 0.0
         self.log_disc_real_acc = 0.0
         self.log_disc_fake_acc = 0.0
-        self.log_gen_loss = 0.0
+        self.log_total_gen_loss = 0.0
+        self.log_gan_loss = 0.0
+        self.log_idt_loss = 0.0
+        self.log_rec_loss = 0.0
+        self.log_kl_loss = 0.0
+        self.log_path_loss = 0.0
         self.log_style_loss = 0.0
         self.log_ada_p = 0.0
 
@@ -74,10 +79,15 @@ class Logger:
 
         string = (
             f"Step: {self.n_steps}/{self.training_steps}, "
-            f"D loss: {calc_mean(self.log_disc_losses):.6g}, "
+            f"D loss: {calc_mean(self.log_total_disc_loss):.6g}, "
             f"D real/fake acc: {calc_mean(self.log_disc_real_acc):.6g}"
             f"/{calc_mean(self.log_disc_fake_acc):.6g}, "
-            f"G loss: {calc_mean(self.log_gen_loss):.6g}, "
+            f"All G loss: {calc_mean(self.log_total_gen_loss):.6g}, "
+            f"Gan loss {calc_mean(self.log_gan_loss):.6g} "
+            f"Idt loss {calc_mean(self.log_idt_loss):.6g}, "
+            f"Rec loss {calc_mean(self.log_rec_loss):.6g}, "
+            f"KL loss {calc_mean(self.log_kl_loss):.6g}, "
+            f"Path loss {calc_mean(self.log_path_loss):.6g}, "
             f"Style loss: {calc_mean(self.log_style_loss):.6g}, "
             f"ADA: {calc_mean(self.log_ada_p):.6g}, "
         )
@@ -100,26 +110,30 @@ class ImageBuffer:
     images: list[torch.Tensor]
     styles: list[torch.Tensor]
 
-    def __init__(self, pool_size: int):
-        self.buffer_size = pool_size
+    def __init__(self, buffer_size: int):
+        self.buffer_size = buffer_size
 
         if self.buffer_size < 1:
             raise ValueError
 
         self.num_imgs = 0
         self.images = []
+        self.styles = []
 
     def __call__(self, images: torch.Tensor, styles: torch.Tensor):
         return_images = []
         return_styles = []
 
         for image, style in zip(images, styles, strict=True):
+            image_unsqueezed = torch.unsqueeze(image, 0).detach()
+            style_unsqueezed = torch.unsqueeze(style, 0).detach()
             # Fill buffer if it is not full
             if self.num_imgs < self.buffer_size:
                 self.num_imgs += 1
-                self.images.append(image)
-                self.styles.append(style)
-                return_images.append(image)
+                self.images.append(image_unsqueezed)
+                self.styles.append(style_unsqueezed)
+                return_images.append(image_unsqueezed)
+                return_styles.append(style_unsqueezed)
             else:
                 p = random.uniform(0, 1)
                 if p > 0.5:
@@ -129,12 +143,12 @@ class ImageBuffer:
                     # Clone tensors as they may be used many times
                     cloned_image = self.images[random_id].clone()
                     cloned_style = self.styles[random_id].clone()
-                    self.images[random_id] = image
-                    self.styles[random_id] = style
+                    self.images[random_id] = image_unsqueezed
+                    self.styles[random_id] = style_unsqueezed
                     return_images.append(cloned_image)
                     return_styles.append(cloned_style)
                 else:
-                    return_images.append(image)
-                    return_styles.append(style)
+                    return_images.append(image_unsqueezed)
+                    return_styles.append(style_unsqueezed)
 
-        return torch.stack(return_images, 0), torch.stack(return_styles, 0)
+        return torch.cat(return_images, 0), torch.cat(return_styles, 0)

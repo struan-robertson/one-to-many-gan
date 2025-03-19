@@ -8,6 +8,8 @@ from .blocks import Conv2dWeightModulate, ModulatedResnetBlock, ResnetBlock
 from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
 from .utils import compile_
 
+# * Mapping Network
+
 
 @compile_
 class MappingNetwork(nn.Module):
@@ -22,7 +24,15 @@ class MappingNetwork(nn.Module):
         layers = []
         for _ in range(n_layers):
             layers.append(EqualisedLinear(features, features))
-            layers.append(nn.LeakyReLU(negative_slope=0.2, inplace=True))
+            layers.append(
+                nn.LeakyReLU(
+                    negative_slope=0.2,
+                    inplace=True,
+                )
+            )
+
+        # Final layer should be a ReLU as when θ is zero the style vector should be zero
+        layers[-1] = nn.ReLU(inplace=True)
 
         self.net = nn.Sequential(*layers)
 
@@ -36,13 +46,24 @@ class MappingNetwork(nn.Module):
         batch_size: int,
         n_gen_blocks: int,
         device: str | int,
+        domain_variable: float
+        | torch.Tensor
+        | tuple[torch.Tensor, torch.Tensor],  # For path calculation
         *,
         mix_styles=True,
-    ):
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Sample z randomly and get w from mapping network.
 
         Style mixing is also applied randomly."""
-        if torch.rand(()).lt(self.style_mixing_prob) and mix_styles:
+        # TODO will a style vector of zeros pose an issue for linear networks?
+        if domain_variable == 0:
+            return torch.zeros(
+                (n_gen_blocks, batch_size, self.d_latent),
+                dtype=torch.float,
+                device=device,
+            )
+
+        if mix_styles and torch.rand(()).lt(self.style_mixing_prob):
             cross_over_point = torch.randint(0, n_gen_blocks, ())
 
             z1 = torch.randn(batch_size, self.d_latent).to(device)
@@ -53,12 +74,41 @@ class MappingNetwork(nn.Module):
 
             w1 = w1[None, :, :].expand(cross_over_point, -1, -1)
             w2 = w2[None, :, :].expand(n_gen_blocks - cross_over_point, -1, -1)
-            return torch.cat((w1, w2), dim=0)
+            w = torch.cat((w1, w2), dim=0)
+        else:
+            z = torch.randn(batch_size, self.d_latent).to(device)
+            w = self.forward(z)
+            w = w[None, :, :].expand(n_gen_blocks, -1, -1)
 
-        z = torch.randn(batch_size, self.d_latent).to(device)
-        w = self.forward(z)
+        # Style vector when \theta=0
+        shoeprint_style_vector = torch.zeros(
+            (1, 1) + w.shape[2:], dtype=torch.float, device=device
+        )
 
-        return w[None, :, :].expand(n_gen_blocks, -1, -1)
+        if isinstance(domain_variable, tuple):
+            d1, d2 = domain_variable
+
+            w1 = torch.lerp(
+                shoeprint_style_vector, w, d1.view(1, -1, 1)
+            )  # d1: [1, batch_dim, 1]
+            w2 = torch.lerp(shoeprint_style_vector, w, d2.view(1, -1, 1))
+
+            return w1, w2
+
+        if isinstance(domain_variable, torch.Tensor):
+            # Reshape for broadcasting
+            d = domain_variable.view(1, -1, 1)
+        else:  # Scalar case
+            d = torch.tensor(domain_variable, dtype=torch.float, device=device).view(
+                1, 1, 1
+            )
+
+        # TODO when domain variable is zero, this will negate any style mixing
+        # I'm not sure how much of a negative effect this would have though
+        return torch.lerp(shoeprint_style_vector, w, d)
+
+
+# * Generator
 
 
 @compile_
@@ -109,18 +159,47 @@ class Generator(nn.Module):
             for m in self.decoder
         )
 
-    def forward(self, x: torch.Tensor, w: torch.Tensor):
-        x = self.encoder(x)
+    def encode(self, x: torch.Tensor):
+        """Encode x to latent space z."""
+        return self.encoder(x)
 
+    def decode(self, z: torch.Tensor, w: torch.Tensor):
+        """Decode from latent space z to image, using style vector w."""
         i = 0
-        for block in self.decoder:
-            if isinstance(block, (ModulatedResnetBlock, Conv2dWeightModulate)):  # noqa: UP038
-                x = block(x, w[i])
+        for layer in self.decoder:
+            if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):  # noqa: UP038 (Type unions don't work with torch.compile)
+                z = layer(z, w[i])
                 i += 1
             else:
-                x = block(x)
+                z = layer(z)
 
-        return x
+        return z
+
+    def extract(self, z: torch.Tensor, w: torch.Tensor, return_layers: list[int]):
+        """Return feature maps from specified layers."""
+        features = []
+        i = 0
+        for layer_n, layer in enumerate(self.decoder):
+            if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):  # noqa: UP038 (Type unions don't work with torch.compile)
+                z = layer(z, w[i])
+                i += 1
+            else:
+                z = layer(z)
+
+            if layer_n in return_layers:
+                features.append(z)
+            if layer_n == return_layers[-1]:
+                return features
+
+        msg = "No return layers specified."
+        raise ValueError(msg)
+
+    def forward(self, x: torch.Tensor, w: torch.Tensor):
+        x = self.encode(x)
+        return self.decode(x, w)
+
+
+# * Discriminator
 
 
 @compile_
@@ -153,6 +232,9 @@ class Discriminator(nn.Module):
 
     def forward(self, x: torch.Tensor):
         return self.model(x)
+
+
+# * Style Extractor
 
 
 @compile_

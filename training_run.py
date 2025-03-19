@@ -2,13 +2,15 @@
 
 import itertools
 import math
+import random
+from typing import cast
 
 import numpy as np
 import torch
 import torch.utils.data
 from ada import AdaptiveDiscriminatorAugmentation
 from src.data import ShoeDataset
-from src.loss import ADAp, style_cycle_loss
+from src.loss import ADAp, kl_loss_func, path_loss_func, style_cycle_loss_func
 from src.models import Discriminator, Generator, MappingNetwork, StyleExtractor
 from src.utils import ImageBuffer, Logger, save_grid
 from torch import nn
@@ -18,20 +20,34 @@ from tqdm import tqdm
 # * Hyperparameters
 
 CONFIG = {
-    "style_clycle_loss_lambda": 0.5,
-    "batch_size": 64,
+    "style_cycle_loss_lambda": 3,
+    "identity_loss_lambda": 5,
+    "reconstruction_loss_lambda": 5,
+    "kl_loss_lambda": 0.01,
+    "path_loss_lambda": 0.1,
+    "path_loss_layers": [
+        0,
+        1,
+        2,
+        3,
+        5,
+        8,
+    ],  # Layers of the decoder to calculate path length on
+    "path_loss_granularity": (
+        0.1,
+        0.2,
+    ),  # Min and max for sampling h to approximate jacobian
+    "batch_size": 32,
+    "image_buffer_size": 100,
     "w_dim": 16,
     "image_size": (128, 64),
     "image_channels": 1,
-    "image_buffer_pool_size": 100,
     "mapping_network_layers": 4,
     "learning_rate": 2e-3,
     "mapping_network_learning_rate": 2e-5,  # 100x less
     "gradient_accumulate_steps": 1,
     "discriminator_steps": 1,
     "generator_steps": 1,
-    "generator_bottleneck_resolution": (16, 8),  # FIXME this currently does nothing
-    "generator_bottleneck_blocks": 6,  # FIXME this currently does nothing
     "discriminator_overfitting_target": 0.6,
     "ada_E": 256,  # Number of images over which to take the mean discriminator overfitting
     "ada_adjustment_size": 5.12e-4,  # Adjustment amount per image, multiplied by ada_E
@@ -127,7 +143,8 @@ style_extractor_optimiser = torch.optim.Adam(
 
 # ** Losses
 
-criterion = nn.MSELoss()
+gan_loss_func = nn.MSELoss()
+l1_loss_func = torch.nn.L1Loss()
 
 # ** Data
 
@@ -166,7 +183,7 @@ shoeprint_dataloader = torch.utils.data.DataLoader(
 shoemark_iter = itertools.cycle(shoemark_dataloader)
 shoeprint_iter = itertools.cycle(shoeprint_dataloader)
 
-image_buffer = ImageBuffer(pool_size=CONFIG["image_buffer_pool_size"])
+image_buffer = ImageBuffer(CONFIG["image_buffer_size"])
 
 # ** Logging
 
@@ -194,11 +211,12 @@ def discriminator_step():
             batch_size=CONFIG["batch_size"],
             n_gen_blocks=generator.n_style_blocks,
             device=device,
+            domain_variable=1,
         )
         generated_shoemarks = generator(shoeprint_images, w)
         buffered_shoemarks, _ = image_buffer(generated_shoemarks, w[-1])
         augmented_fake_shoemarks = adaptive_discriminator_augmentation(
-            buffered_shoemarks.detach()
+            buffered_shoemarks
         )
         fake_scores = discriminator(augmented_fake_shoemarks)
 
@@ -206,8 +224,8 @@ def discriminator_step():
         augmented_real_shoemarks = adaptive_discriminator_augmentation(real_shoemarks)
         real_scores = discriminator(augmented_real_shoemarks)
 
-        real_loss = criterion(real_scores, torch.ones_like(real_scores))
-        fake_loss = criterion(fake_scores, torch.zeros_like(fake_scores))
+        real_loss = gan_loss_func(real_scores, torch.ones_like(real_scores))
+        fake_loss = gan_loss_func(fake_scores, torch.zeros_like(fake_scores))
 
         disc_loss = (real_loss + fake_loss) / 2
 
@@ -244,44 +262,140 @@ def generator_step():
     mapping_network_optimiser.zero_grad()
     style_extractor_optimiser.zero_grad()
 
-    log_gen_loss = torch.zeros((), device=device)
+    log_total_gen_loss = torch.zeros((), device=device)
+    log_gan_loss = torch.zeros((), device=device)
+    log_rec_loss = torch.zeros((), device=device)
+    log_idt_loss = torch.zeros((), device=device)
+    log_kl_loss = torch.zeros((), device=device)
+    log_path_loss = torch.zeros((), device=device)
     log_style_loss = torch.zeros((), device=device)
 
     for _ in range(CONFIG["gradient_accumulate_steps"]):
         shoeprint_images = next(shoeprint_iter).to(device)
-        w = mapping_network.get_w(
+        real_shoemark_images = next(shoemark_iter).to(device)
+
+        # KL loss
+        # TODO in the Santa implementation they add Gaussian noise to latents after kl loss
+        # Combine for single forward pass
+        combined_images = torch.cat([shoeprint_images, real_shoemark_images], dim=0)
+        combined_latents = generator.encode(combined_images)
+        kl_loss = kl_loss_func(combined_latents)
+        log_kl_loss += kl_loss
+
+        # Encoded latent variables
+        shoeprint_latent, shoemark_latent = combined_latents.chunk(2, dim=0)
+
+        # Reconstruction loss
+        reconstruct_w = mapping_network.get_w(
             batch_size=CONFIG["batch_size"],
             n_gen_blocks=generator.n_style_blocks,
             device=device,
+            domain_variable=0,
         )
-        generated_shoemarks = generator(shoeprint_images, w)
+        reconstruct_w = cast(torch.Tensor, reconstruct_w)
+        reconstructed_shoeprints = generator.decode(shoeprint_latent, reconstruct_w)
+        reconstruction_loss = l1_loss_func(reconstructed_shoeprints, shoeprint_images)
+        log_rec_loss += reconstruction_loss
+
+        # Identity loss
+        real_shoemark_w = style_extractor(real_shoemark_images)
+        reconstructed_shoemarks = generator.decode(
+            shoemark_latent,
+            real_shoemark_w.expand(generator.n_style_blocks, *real_shoemark_w.shape),
+        )
+        identity_loss = l1_loss_func(reconstructed_shoemarks, real_shoemark_images)
+        log_idt_loss += identity_loss
+
+        # GAN loss
+        translation_w = mapping_network.get_w(
+            batch_size=CONFIG["batch_size"],
+            n_gen_blocks=generator.n_style_blocks,
+            device=device,
+            domain_variable=1,
+        )
+        translation_w = cast(torch.Tensor, translation_w)
+        generated_shoemarks = generator.decode(shoeprint_latent, translation_w)
         augmented_generated_images = adaptive_discriminator_augmentation(
             generated_shoemarks
         )
         fake_shoemark_scores = discriminator(augmented_generated_images)
-
-        gen_loss = criterion(
+        gan_loss = gan_loss_func(
             fake_shoemark_scores, torch.ones_like(fake_shoemark_scores)
         )
+        log_gan_loss += gan_loss
 
         # Style vector cycle consistency loss
         # Use image buffer to stop collusion between generator and style_extractor
-        buffered_shoemarks, buffered_w = image_buffer(generated_shoemarks, w[-1])
-        reconstructed_w = style_extractor(buffered_shoemarks)
+        # TODO figure out some way to back propagate this
+        p = random.uniform(0, 1)
+        if p > 0.5:
+            style_loss_shoemarks, style_loss_w = image_buffer(
+                generated_shoemarks, translation_w[-1]
+            )
+        else:
+            style_loss_shoemarks = generated_shoemarks
+            style_loss_w = translation_w[-1]
+        reconstructed_w = style_extractor(style_loss_shoemarks)
+        style_loss = style_cycle_loss_func(style_loss_w, reconstructed_w)
+        log_style_loss += style_loss
 
-        cycle_loss = style_cycle_loss(buffered_w, reconstructed_w)
-        gen_loss += cycle_loss * CONFIG["style_clycle_loss_lambda"]
-        log_gen_loss += gen_loss
+        # Path loss
+        # Calculate random \theta for each image from uniform distribution between 0 and 1
+        theta = torch.rand(CONFIG["batch_size"]).to(device)
+        # H used in the central finite difference calculation
+        cent_fin_diff_h = (
+            torch.ones_like(theta)
+            .to(device)
+            .uniform_(
+                CONFIG["path_loss_granularity"][0], CONFIG["path_loss_granularity"][1]
+            )
+        )
+        d1 = (theta + cent_fin_diff_h / 2).clamp(0, 1)
+        d2 = (theta - cent_fin_diff_h / 2).clamp(0, 1)
+        w1, w2 = mapping_network.get_w(
+            batch_size=CONFIG["batch_size"],
+            n_gen_blocks=generator.n_style_blocks,
+            device=device,
+            domain_variable=(d1, d2),
+        )
+        features1 = generator.extract(shoeprint_latent, w1, CONFIG["path_loss_layers"])
+        features2 = generator.extract(shoeprint_latent, w2, CONFIG["path_loss_layers"])
+        path_loss = path_loss_func(features1, features2, cent_fin_diff_h)
+        log_path_loss += path_loss
 
-        gen_loss.backward()
+        total_gen_loss = (
+            gan_loss
+            + CONFIG["identity_loss_lambda"] * identity_loss
+            + CONFIG["reconstruction_loss_lambda"] * reconstruction_loss
+            + CONFIG["kl_loss_lambda"] * kl_loss
+            + CONFIG["path_loss_lambda"] * path_loss
+            + CONFIG["style_cycle_loss_lambda"] * style_loss
+        )
+
+        log_total_gen_loss += total_gen_loss
+
+        total_gen_loss.backward(retain_graph=True)
 
     generator_optimiser.step()
     mapping_network_optimiser.step()
     style_extractor_optimiser.step()
 
-    log_gen_loss /= CONFIG["gradient_accumulate_steps"]
+    log_total_gen_loss /= CONFIG["gradient_accumulate_steps"]
+    log_gan_loss /= CONFIG["gradient_accumulate_steps"]
+    log_rec_loss /= CONFIG["gradient_accumulate_steps"]
+    log_idt_loss /= CONFIG["gradient_accumulate_steps"]
+    log_kl_loss /= CONFIG["gradient_accumulate_steps"]
+    log_path_loss /= CONFIG["gradient_accumulate_steps"]
+    log_style_loss /= CONFIG["gradient_accumulate_steps"]
 
-    return log_gen_loss.detach().cpu().numpy(), (log_style_loss.detach().cpu().numpy())
+    return log_total_gen_loss.detach().cpu().numpy(), (
+        log_gan_loss.detach().cpu().numpy(),
+        log_rec_loss.detach().cpu().numpy(),
+        log_idt_loss.detach().cpu().numpy(),
+        log_kl_loss.detach().cpu().numpy(),
+        log_path_loss.detach().cpu().numpy(),
+        log_style_loss.detach().cpu().numpy(),
+    )
 
 
 # ** Main Loop
@@ -308,19 +422,38 @@ def main():
             disc_real_accuracies.append(real_accuracy)
             disc_fake_accuracies.append(fake_accuracy)
 
-        logger.log_disc_losses += np.mean(disc_losses).item()
+        logger.log_total_disc_loss += np.mean(disc_losses).item()
         logger.log_disc_real_acc += np.mean(disc_real_accuracies).item()
         logger.log_disc_fake_acc += np.mean(disc_fake_accuracies).item()
 
         # Train generator
-        gen_losses = []
+        # TODO this is getting a bit crazy, clean it up
+        total_gen_losses = []
+        gan_losses = []
+        rec_losses = []
+        idt_losses = []
+        kl_losses = []
+        path_losses = []
         style_losses = []
         for _ in range(CONFIG["generator_steps"]):
-            gen_loss, (style_loss) = generator_step()
-            gen_losses.append(gen_loss)
+            (
+                total_gen_loss,
+                (gan_loss, rec_loss, idt_loss, kl_loss, path_loss, style_loss),
+            ) = generator_step()
+            total_gen_losses.append(total_gen_loss)
+            gan_losses.append(gan_loss)
+            rec_losses.append(rec_loss)
+            idt_losses.append(idt_loss)
+            kl_losses.append(kl_loss)
+            path_losses.append(path_loss)
             style_losses.append(style_loss)
 
-        logger.log_gen_loss += np.mean(gen_losses).item()
+        logger.log_total_gen_loss += np.mean(total_gen_losses).item()
+        logger.log_gan_loss += np.mean(gan_losses).item()
+        logger.log_rec_loss += np.mean(rec_losses).item()
+        logger.log_idt_loss += np.mean(idt_losses).item()
+        logger.log_kl_loss += np.mean(kl_losses).item()
+        logger.log_path_loss += np.mean(path_losses).item()
         logger.log_style_loss += np.mean(style_losses).item()
 
         if (step + 1) % CONFIG["log_generated_interval"] == 0 or (step + 1) == CONFIG[
@@ -341,6 +474,7 @@ def main():
                         n_gen_blocks=generator.n_style_blocks,
                         device=device,
                         mix_styles=False,
+                        domain_variable=1,
                     )
                     for _ in range(3)
                 ]

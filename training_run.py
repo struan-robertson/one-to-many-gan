@@ -302,7 +302,8 @@ def generator_step():
 
     # Encoded latent variables
     # Not specified in paper, but in implementation Xie et al. add noise to latents.
-    combined_latents = combined_latents + torch.randn_like(combined_latents)
+    if CONFIG["add_latent_noise"]:
+        combined_latents = combined_latents + torch.randn_like(combined_latents)
     shoeprint_latent, shoemark_latent = combined_latents.chunk(2, dim=0)
 
     # Reconstruction loss

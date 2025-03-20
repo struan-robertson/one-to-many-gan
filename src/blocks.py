@@ -1,7 +1,5 @@
 """Blocks from which to construct full models."""
 
-from typing import Literal
-
 import torch
 from torch import nn
 
@@ -14,41 +12,24 @@ class ResnetBlock(nn.Module):
     def __init__(
         self,
         dim: int,
-        padding_type: Literal["reflect", "replicate", "zero"],
         *,
         use_dropout: bool = False,
         use_bias: bool = False,
     ):
         super().__init__()
 
-        conv_block = []
-        p = 0
-
-        if padding_type == "reflect":
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == "replicate":
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == "zero":
-            p = 1
-
-        conv_block += [
-            EqualisedConv2d(dim, dim, kernel_size=3, padding=p, use_bias=use_bias),
+        conv_block = [
+            nn.ReflectionPad2d(1),
+            EqualisedConv2d(dim, dim, kernel_size=3, padding=0, use_bias=use_bias),
             nn.InstanceNorm2d(dim),
             nn.ReLU(inplace=True),
         ]
         if use_dropout:
             conv_block += [nn.Dropout(0.5)]
 
-        p = 0
-        if padding_type == "reflect":
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == "replicate":
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == "zero":
-            p = 1
-
         conv_block += [
-            EqualisedConv2d(dim, dim, kernel_size=3, padding=p, use_bias=use_bias),
+            nn.ReflectionPad2d(1),
+            EqualisedConv2d(dim, dim, kernel_size=3, padding=0, use_bias=use_bias),
             nn.InstanceNorm2d(dim),
         ]
 
@@ -71,10 +52,10 @@ class ModulatedResnetBlock(nn.Module):
     ):
         super().__init__()
 
-        conv_block = []
-        conv_block += [
+        conv_block = [
+            nn.ReflectionPad2d(1),
             Conv2dWeightModulate(
-                dim, dim, w_dim=w_dim, kernel_size=3, use_bias=use_bias
+                dim, dim, w_dim=w_dim, kernel_size=3, padding=0, use_bias=use_bias
             ),
             nn.ReLU(inplace=True),
         ]
@@ -82,8 +63,9 @@ class ModulatedResnetBlock(nn.Module):
             conv_block += [nn.Dropout(0.5)]
 
         conv_block += [
+            nn.ReflectionPad2d(1),
             Conv2dWeightModulate(
-                dim, dim, w_dim=w_dim, kernel_size=3, use_bias=use_bias
+                dim, dim, w_dim=w_dim, kernel_size=3, padding=0, use_bias=use_bias
             ),
         ]
 

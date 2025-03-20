@@ -1,5 +1,7 @@
 """Different models used in overall architecture."""
 
+import math
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -110,48 +112,79 @@ class MappingNetwork(nn.Module):
 class Generator(nn.Module):
     """Resnet generator consisting of Resnet blocks between downsampling/upsampling operations."""
 
-    def __init__(self, input_nc: int = 1, *, w_dim: int):
+    def __init__(
+        self,
+        input_nc: int,
+        w_dim: int,
+        image_size: tuple[int, int],
+        min_latent_resolution: int,
+        n_resnet_blocks: int,
+        start_filters: int = 64,
+    ):
         super().__init__()
 
-        self.encoder = nn.Sequential(
-            nn.ReflectionPad2d(3),
-            EqualisedConv2d(input_nc, 64, kernel_size=7),
-            nn.InstanceNorm2d(64),
-            nn.ReLU(inplace=True),
-            EqualisedConv2d(64, 128, kernel_size=3, padding=1),
-            nn.InstanceNorm2d(128),
-            nn.ReLU(inplace=True),
-            DownSample(),
-            EqualisedConv2d(128, 256, kernel_size=3, padding=1),
-            nn.InstanceNorm2d(256),
-            nn.ReLU(inplace=True),
-            DownSample(),
-            ResnetBlock(256, "reflect"),
-            ResnetBlock(256, "reflect"),
-            ResnetBlock(256, "reflect"),
+        filters = start_filters
+        min_image_resolution = min(image_size)
+        n_downsamples = math.ceil(
+            math.log2(min_image_resolution / min_latent_resolution)
         )
+        n_encoder_resnet_blocks = n_resnet_blocks // 2
+        n_decoder_resnet_blocks = math.ceil(n_resnet_blocks / 2)
 
-        self.decoder = nn.ModuleList(
-            [
-                ModulatedResnetBlock(256, w_dim=w_dim),
-                ModulatedResnetBlock(256, w_dim=w_dim),
-                ModulatedResnetBlock(256, w_dim=w_dim),
-                ModulatedResnetBlock(256, w_dim=w_dim),
-                UpSample(),
-                Conv2dWeightModulate(256, 128, w_dim=w_dim, kernel_size=3),
+        # Initial encoder block without downsampling
+        encoder = [
+            nn.ReflectionPad2d(3),
+            EqualisedConv2d(input_nc, filters, kernel_size=7),
+            nn.InstanceNorm2d(filters),
+            nn.ReLU(inplace=True),
+        ]
+
+        # Downsample to specified latent resolution
+        for _ in range(n_downsamples):
+            encoder += [
+                EqualisedConv2d(filters, filters * 2, kernel_size=3, padding=1),
+                nn.InstanceNorm2d(filters * 2),
                 nn.ReLU(inplace=True),
-                UpSample(),
-                Conv2dWeightModulate(128, 64, w_dim=w_dim, kernel_size=3),
-                nn.ReLU(inplace=True),
-                nn.ReflectionPad2d(3),
-                EqualisedConv2d(64, 1, kernel_size=7),
-                nn.Tanh(),
+                DownSample(),
             ]
-        )
+            filters *= 2
+
+        # Encoder portion of resnet blocks
+        encoder += [ResnetBlock(filters) for _ in range(n_encoder_resnet_blocks)]
+
+        self.encoder = nn.Sequential(*encoder)
+
+        # Decoder portion of resnet blocks
+        decoder = [
+            ModulatedResnetBlock(filters, w_dim=w_dim)
+            for _ in range(n_decoder_resnet_blocks)
+        ]
+
+        # Upsample to image dimensions
+        for _ in range(n_downsamples):
+            decoder += [
+                UpSample(),
+                Conv2dWeightModulate(
+                    filters, filters // 2, kernel_size=3, padding=1, w_dim=w_dim
+                ),
+                nn.ReLU(inplace=True),
+            ]
+            filters //= 2
+
+        # Final decoder block without downsampling
+        decoder += [
+            nn.ReflectionPad2d(3),
+            EqualisedConv2d(filters, input_nc, kernel_size=7),
+            nn.Tanh(),
+        ]
+
+        self.decoder = nn.ModuleList(decoder)
 
         self.n_style_blocks = sum(
-            isinstance(m, ModulatedResnetBlock | Conv2dWeightModulate)
-            for m in self.decoder
+            [
+                isinstance(m, ModulatedResnetBlock | Conv2dWeightModulate)
+                for m in self.decoder
+            ]  # Use list comprehension instead of generator for compatibility with torch.compile
         )
 
     def encode(self, x: torch.Tensor):

@@ -117,6 +117,7 @@ class Conv2dWeightModulate(nn.Module):
         out_features: int,
         kernel_size: int,
         w_dim: int,
+        padding: int,
         *,
         use_bias: bool = False,
         demodulate: bool = True,
@@ -127,7 +128,7 @@ class Conv2dWeightModulate(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.demodulate = demodulate
-        self.padding = (kernel_size - 1) // 2
+        self.padding = padding
         self.weight = EqualisedWeight(
             [out_features, in_features, kernel_size, kernel_size]
         )

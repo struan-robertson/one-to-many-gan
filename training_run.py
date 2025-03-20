@@ -44,6 +44,8 @@ CONFIG = {
     "image_size": (512, 256),
     "image_channels": 1,
     "add_latent_noise": True,  # Add noise to latent feature maps
+    "min_latent_resolution": 64,
+    "n_resnet_blocks": 9,
     "mapping_network_layers": 2,
     "learning_rate": 2e-3,
     "mapping_network_learning_rate": 2e-5,  # 100x less
@@ -110,9 +112,13 @@ torch._functorch.config.donated_buffer = False  # pyright: ignore[reportAttribut
 
 discriminator = Discriminator(input_nc=CONFIG["image_channels"]).to(device)
 
-generator = Generator(input_nc=CONFIG["image_channels"], w_dim=CONFIG["w_dim"]).to(
-    device
-)
+generator = Generator(
+    input_nc=CONFIG["image_channels"],
+    w_dim=CONFIG["w_dim"],
+    image_size=CONFIG["image_size"],
+    min_latent_resolution=CONFIG["min_latent_resolution"],
+    n_resnet_blocks=CONFIG["n_resnet_blocks"],
+).to(device)
 
 mapping_network = MappingNetwork(
     features=CONFIG["w_dim"],

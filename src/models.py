@@ -52,10 +52,7 @@ class MappingNetwork(nn.Module):
         *,
         mix_styles=True,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Sample z randomly and get w from mapping network.
-
-        Style mixing is also applied randomly."""
-        # TODO will a style vector of zeros pose an issue for linear networks?
+        """Sample z randomly and get w from mapping network."""
         if domain_variable == 0:
             return torch.zeros(
                 (n_gen_blocks, batch_size, self.d_latent),
@@ -103,8 +100,6 @@ class MappingNetwork(nn.Module):
                 1, 1, 1
             )
 
-        # TODO when domain variable is zero, this will negate any style mixing
-        # I'm not sure how much of a negative effect this would have though
         return torch.lerp(shoeprint_style_vector, w, d)
 
 

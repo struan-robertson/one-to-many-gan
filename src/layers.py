@@ -166,6 +166,13 @@ class Conv2dWeightModulate(nn.Module):
 
         x = F.conv2d(x, weights, padding=self.padding, groups=b)
 
+        # Bit of an ugly hack to account for the fact that external padding
+        # is applied before we calculate the height and width.
+        # Not the end of the world as I only use nn.ReflectionPad2d(1)
+        if self.padding == 0:
+            height -= 2
+            width -= 2
+
         x = x.reshape(-1, self.out_features, height, width)
 
         if self.use_bias:

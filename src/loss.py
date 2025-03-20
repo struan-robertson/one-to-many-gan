@@ -50,8 +50,8 @@ class ADAp:
         self.curr_batch += 1
         self.mean_real_scores.append(mean_score)
 
-    def __call__(self):
-        return self.p
+    def __call__(self) -> float:
+        return self.p.item()
 
 
 # * Loss Functions
@@ -104,9 +104,9 @@ def path_loss_func(
     features1: list[torch.Tensor],
     features2: list[torch.Tensor],
     cent_fin_diff_h: torch.Tensor,
-):
+) -> torch.Tensor:
     """Calculate path length loss."""
-    path_loss = 0
+    path_loss = torch.zeros((), device=features1[0].device)
     for feature1, feature2 in zip(features1, features2, strict=True):
         jacobian = (feature1 - feature2) / cent_fin_diff_h[:, None, None, None]
         energy = (jacobian**2).mean()

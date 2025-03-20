@@ -4,6 +4,7 @@ import functools
 import random
 from pathlib import Path
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 
@@ -51,54 +52,47 @@ class Logger:
     """Keep track of losses/accs."""
 
     def __init__(self, training_steps: int):
-        self.n_steps = 0
-        self.print_steps = 0
         self.training_steps = training_steps
 
         self.initialise_trackers()
 
     def initialise_trackers(self):
-        self.log_total_disc_loss = 0.0
-        self.log_disc_real_acc = 0.0
-        self.log_disc_fake_acc = 0.0
-        self.log_total_gen_loss = 0.0
-        self.log_gan_loss = 0.0
-        self.log_idt_loss = 0.0
-        self.log_rec_loss = 0.0
-        self.log_kl_loss = 0.0
-        self.log_path_loss = 0.0
-        self.log_style_loss = 0.0
-        self.log_ada_p = 0.0
+        self.log_total_disc_losses = []
+        self.log_disc_real_accs = []
+        self.log_disc_fake_accs = []
+        self.log_total_gen_losses = []
+        self.log_gan_losses = []
+        self.log_idt_losses = []
+        self.log_rec_losses = []
+        self.log_kl_losses = []
+        self.log_path_losses = []
+        self.log_style_losses = []
+        self.log_ada_ps = []
 
-    def step(self):
-        self.n_steps += 1
-        self.print_steps += 1
-
-    def print(self):
-        calc_mean = lambda x: x / self.print_steps
+    def print(self, step: int):
+        calc_mean = lambda x: np.mean(x)
 
         string = (
-            f"Step: {self.n_steps}/{self.training_steps}, "
-            f"D loss: {calc_mean(self.log_total_disc_loss):.6g}, "
-            f"D real/fake acc: {calc_mean(self.log_disc_real_acc):.6g}"
-            f"/{calc_mean(self.log_disc_fake_acc):.6g}, "
-            f"All G loss: {calc_mean(self.log_total_gen_loss):.6g}, "
-            f"Gan loss {calc_mean(self.log_gan_loss):.6g} "
-            f"Idt loss {calc_mean(self.log_idt_loss):.6g}, "
-            f"Rec loss {calc_mean(self.log_rec_loss):.6g}, "
-            f"KL loss {calc_mean(self.log_kl_loss):.6g}, "
-            f"Path loss {calc_mean(self.log_path_loss):.6g}, "
-            f"Style loss: {calc_mean(self.log_style_loss):.6g}, "
-            f"ADA: {calc_mean(self.log_ada_p):.6g}, "
+            f"Step: {step}/{self.training_steps}, "
+            f"D loss: {calc_mean(self.log_total_disc_losses):.6g}, "
+            f"D real/fake acc: {calc_mean(self.log_disc_real_accs):.6g}"
+            f"/{calc_mean(self.log_disc_fake_accs):.6g}, "
+            f"Total G loss: {calc_mean(self.log_total_gen_losses):.6g}, "
+            f"Gan loss {calc_mean(self.log_gan_losses):.6g} "
+            f"Idt loss {calc_mean(self.log_idt_losses):.6g}, "
+            f"Rec loss {calc_mean(self.log_rec_losses):.6g}, "
+            f"KL loss {calc_mean(self.log_kl_losses):.6g}, "
+            f"Path loss {calc_mean(self.log_path_losses):.6g}, "
+            f"Style loss: {calc_mean(self.log_style_losses):.6g}, "
+            f"ADA: {calc_mean(self.log_ada_ps):.6g}, "
         )
 
         self.initialise_trackers()
-        self.print_steps = 0
 
         return string
 
 
-# TODO dont store style here
+# Adapted from CycleGAN
 class ImageBuffer:
     """An image buffer that stores previously generated images.
 
@@ -109,7 +103,6 @@ class ImageBuffer:
     buffer_size: int
     num_imgs: int
     images: list[torch.Tensor]
-    styles: list[torch.Tensor]
 
     def __init__(self, buffer_size: int):
         self.buffer_size = buffer_size
@@ -119,22 +112,17 @@ class ImageBuffer:
 
         self.num_imgs = 0
         self.images = []
-        self.styles = []
 
-    def __call__(self, images: torch.Tensor, styles: torch.Tensor):
+    def __call__(self, images: torch.Tensor):
         return_images = []
-        return_styles = []
 
-        for image, style in zip(images, styles, strict=True):
-            image_unsqueezed = torch.unsqueeze(image, 0).detach()
-            style_unsqueezed = torch.unsqueeze(style, 0).detach()
+        for image in images:
+            image_unsqueezed = torch.unsqueeze(image.detach(), 0)
             # Fill buffer if it is not full
             if self.num_imgs < self.buffer_size:
                 self.num_imgs += 1
                 self.images.append(image_unsqueezed)
-                self.styles.append(style_unsqueezed)
                 return_images.append(image_unsqueezed)
-                return_styles.append(style_unsqueezed)
             else:
                 p = random.uniform(0, 1)
                 if p > 0.5:
@@ -143,13 +131,9 @@ class ImageBuffer:
                     )  # randint is inclusive
                     # Clone tensors as they may be used many times
                     cloned_image = self.images[random_id].clone()
-                    cloned_style = self.styles[random_id].clone()
                     self.images[random_id] = image_unsqueezed
-                    self.styles[random_id] = style_unsqueezed
                     return_images.append(cloned_image)
-                    return_styles.append(cloned_style)
                 else:
                     return_images.append(image_unsqueezed)
-                    return_styles.append(style_unsqueezed)
 
-        return torch.cat(return_images, 0), torch.cat(return_styles, 0)
+        return torch.cat(return_images, 0)

@@ -255,7 +255,11 @@ class Discriminator(nn.Module):
             EqualisedConv2d(256, 512, kernel_size=4, padding=1),
             nn.InstanceNorm2d(512),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
-            EqualisedConv2d(512, 1, kernel_size=4, padding=1),
+            DownSample(),
+            EqualisedConv2d(512, 1024, kernel_size=4, padding=1),
+            nn.InstanceNorm2d(1024),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            EqualisedConv2d(1024, 1, kernel_size=4, padding=1),
         )
 
     def forward(self, x: torch.Tensor):

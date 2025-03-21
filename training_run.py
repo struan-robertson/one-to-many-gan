@@ -4,6 +4,7 @@ import itertools
 import math
 import os
 import random
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -423,7 +424,10 @@ def main():
         if (step + 1) % CONFIG["log_generated_interval"] == 0 or (step + 1) == CONFIG[
             "training_steps"
         ]:
-            tqdm.write(logger.print(step + 1))
+            log = logger.print(step + 1)
+            tqdm.write(log)
+            with Path("./checkpoints/log.txt").open("a") as file:
+                file.write(log + "\n")
 
         # TODO test this works
         if (step + 1) % CONFIG["save_checkpoint_interval"] == 0 or (step + 1) == CONFIG[

@@ -203,21 +203,21 @@ class Generator(nn.Module):
 
         return z
 
-    def extract(self, z: torch.Tensor, w: torch.Tensor, return_layers: list[int]):
+    def extract(self, z: torch.Tensor, w: torch.Tensor):
         """Return feature maps from specified layers."""
         features = []
         i = 0
-        for layer_n, layer in enumerate(self.decoder):
+        for layer in self.decoder:
             if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):  # noqa: UP038 (Type unions don't work with torch.compile)
                 z = layer(z, w[i])
                 i += 1
+
+                # Return each weight demodulation layer
+                features.append(z)
+                if i == self.n_style_blocks:
+                    return features
             else:
                 z = layer(z)
-
-            if layer_n in return_layers:
-                features.append(z)
-            if layer_n == return_layers[-1]:
-                return features
 
         msg = "No return layers specified."
         raise ValueError(msg)

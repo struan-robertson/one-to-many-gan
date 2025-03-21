@@ -26,14 +26,6 @@ CONFIG = {
     "reconstruction_loss_lambda": 5,
     "kl_loss_lambda": 0.01,
     "path_loss_lambda": 0.1,
-    "path_loss_layers": [
-        0,
-        1,
-        2,
-        3,
-        5,
-        8,
-    ],  # Layers of the decoder to calculate path length on
     "path_loss_granularity": (
         0.1,
         0.2,
@@ -367,8 +359,8 @@ def generator_step():
         device=device,
         domain_variable=(d1, d2),
     )
-    features1 = generator.extract(shoeprint_latent, w1, CONFIG["path_loss_layers"])
-    features2 = generator.extract(shoeprint_latent, w2, CONFIG["path_loss_layers"])
+    features1 = generator.extract(shoeprint_latent, w1)
+    features2 = generator.extract(shoeprint_latent, w2)
     path_loss = path_loss_func(features1, features2, cent_fin_diff_h)
 
     total_gen_loss = (

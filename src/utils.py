@@ -15,8 +15,9 @@ compile_ = functools.partial(
 )
 
 
-def save_grid(step: int, images: list[list[torch.Tensor]]):
+def save_grid(step: int, images: list[list[torch.Tensor]], save_path: Path | str):
     """Save a grid of generated images to a file."""
+    save_path = Path(save_path)
 
     def process_image(image: torch.Tensor):
         image = image.permute(0, 2, 3, 1)
@@ -38,11 +39,10 @@ def save_grid(step: int, images: list[list[torch.Tensor]]):
             )  # Note that images_np is col major, and axes_np is row major
             axes[row_idx, col_idx].set_axis_off()
 
-    savepath: Path = Path("./checkpoints")
-    savepath.mkdir(exist_ok=True)
+    save_path.mkdir(exist_ok=True)
 
     plt.subplots_adjust(wspace=0.1, hspace=0.1)
-    plt.savefig(savepath / f"{step}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(save_path / f"{step}.png", dpi=300, bbox_inches="tight")
 
     plt.close()
     plt.ion()

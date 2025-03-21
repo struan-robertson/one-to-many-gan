@@ -471,7 +471,24 @@ def main():
             generator.train()
             mapping_network.train()
 
-            save_grid(step + 1, shoemark_images)
+            save_grid(step + 1, shoemark_images, "./checkpoints/images")
+
+            torch.save(
+                {
+                    "generator_state_dict": generator.state_dict(),
+                    "generator_optimiser_state_dict": generator_optimiser.state_dict(),
+                    "discriminator_state_dict": discriminator_optimiser.state_dict(),
+                    "discriminator_optimiser_state_dict": discriminator_optimiser.state_dict(),
+                    "mapping_network_state_dict": mapping_network.state_dict(),
+                    "mapping_network_optimiser_state_dict": mapping_network_optimiser.state_dict(),
+                    "style_extractor_state_dict": style_extractor.state_dict(),
+                    "style_extractor_optimiser_state_dict": style_extractor_optimiser.state_dict(),
+                    "ada_p": ada_p(),
+                    "image_buffer_images": image_buffer.images,
+                    "image_buffer_size": image_buffer.buffer_size,
+                },
+                f"./checkpoints/models/{step + 1}.tar",
+            )
 
 
 if __name__ == "__main__":

@@ -287,12 +287,9 @@ class StyleExtractor(nn.Module):
             EqualisedConv2d(256, 512, kernel_size=4, padding=1),
             nn.InstanceNorm2d(512),
             nn.LeakyReLU(0.2, inplace=True),
-            EqualisedConv2d(512, 1024, kernel_size=4, padding=1),
-            nn.InstanceNorm2d(1024),
-            nn.LeakyReLU(0.2, inplace=True),
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            EqualisedLinear(1024, w_dim),
+            EqualisedLinear(512, w_dim),
         )
 
     def forward(self, x):

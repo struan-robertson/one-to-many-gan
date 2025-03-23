@@ -36,9 +36,9 @@ CONFIG = {
     "w_dim": 6,  # Dimensionality of the style vector
     "image_size": (512, 256),
     "image_channels": 1,
-    "add_latent_noise": True,  # Add noise to latent feature maps
+    "add_latent_noise": False,  # Add noise to latent feature maps
     "min_latent_resolution": 64,
-    "n_resnet_blocks": 9,
+    "n_resnet_blocks": 7,
     "mapping_network_layers": 2,
     "learning_rate": 2e-3,
     "mapping_network_learning_rate": 2e-5,  # 100x less
@@ -50,10 +50,10 @@ CONFIG = {
     "adam_betas": (0.5, 0.99),
     "style_mixing_prob": 0.9,  # Probability to use two different style vectors in decoder
     "random_seed": 42,
-    "deterministic_cuda_kernels": True,  # Allows reproduction but is slower
-    "training_steps": 1_000_000,
+    "deterministic_cuda_kernels": False,  # Allows reproduction but is _MUCH_ slower,
+    "training_steps": 150_000,
     "log_generated_interval": 500,
-    "save_checkpoint_interval": 1_000,
+    "save_checkpoint_interval": 5_000,
 }
 
 # * Initialisation

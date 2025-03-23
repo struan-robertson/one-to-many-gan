@@ -9,15 +9,20 @@ from matplotlib import pyplot as plt
 
 # * Training
 
+# ** save_grid
 
-def save_grid(step: int, images: list[list[torch.Tensor]], save_path: Path | str):
+
+def save_grid(
+    images: list[list[torch.Tensor]],
+    save_path: Path | str,
+    grid_size: tuple[int, int],
+):
     """Save a grid of generated images to a file."""
     save_path = Path(save_path)
 
     def process_image(image: torch.Tensor):
-        image = image.permute(0, 2, 3, 1)
+        image = image.permute(1, 2, 0)
         image = (image - image.min()) / (image.max() - image.min())
-        image = image[0]
 
         return image.cpu().numpy()
 
@@ -25,22 +30,27 @@ def save_grid(step: int, images: list[list[torch.Tensor]], save_path: Path | str
 
     plt.ioff()
 
-    _, axes = plt.subplots(nrows=9, ncols=8, figsize=(8, 9))
+    rows, cols = grid_size
 
-    for row_idx in range(9):
-        for col_idx in range(8):
+    _, axes = plt.subplots(nrows=rows, ncols=cols, figsize=(cols, rows))
+
+    for row_idx in range(rows):
+        for col_idx in range(cols):
             axes[row_idx, col_idx].imshow(
                 images_np[col_idx][row_idx], cmap="gray"
             )  # Note that images_np is col major, and axes_np is row major
             axes[row_idx, col_idx].set_axis_off()
 
-    save_path.mkdir(exist_ok=True)
+    save_path.parent.mkdir(exist_ok=True)
 
     plt.subplots_adjust(wspace=0.1, hspace=0.1)
-    plt.savefig(save_path / f"{step}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     plt.close()
     plt.ion()
+
+
+# ** Logger
 
 
 class Logger:
@@ -85,6 +95,9 @@ class Logger:
         self.initialise_trackers()
 
         return string
+
+
+# * Image Buffer
 
 
 # Adapted from CycleGAN

@@ -429,14 +429,15 @@ def main():
             with Path("./checkpoints/log.txt").open("a") as file:
                 file.write(log + "\n")
 
-        # TODO test this works
         if (step + 1) % CONFIG["save_checkpoint_interval"] == 0 or (step + 1) == CONFIG[
             "training_steps"
         ]:
-            # Generate images
             generator.eval()
             mapping_network.eval()
+            style_extractor.eval()
+
             with torch.no_grad():
+                # Get styles
                 w = mapping_network.get_w(
                     batch_size=8,
                     n_gen_blocks=generator.n_style_blocks,
@@ -445,54 +446,100 @@ def main():
                     domain_variable=1,
                 )
                 w = cast(torch.Tensor, w)
+
+                # Collect enough shoeprints and shoemarks
                 if CONFIG["batch_size"] < 8:
-                    shoeprint_images = [
+                    real_shoeprint_images = [
                         next(shoeprint_iter).to(device)
                         for _ in range(math.ceil(8 / CONFIG["batch_size"]))
                     ]
-                    shoeprint_images = torch.cat(shoeprint_images)
+                    real_shoemark_images = [
+                        next(shoemark_iter).to(device)
+                        for _ in range(math.ceil(8 / CONFIG["batch_size"]))
+                    ]
+
+                    real_shoeprint_images = torch.cat(real_shoeprint_images, dim=0)
+                    real_shoemark_images = torch.cat(real_shoemark_images, dim=0)
                 else:
-                    shoeprint_images = next(shoeprint_iter).to(device)
+                    real_shoeprint_images = next(shoeprint_iter).to(device)
+                    real_shoemark_images = next(shoemark_iter).to(device)
 
-                shoeprint_images = shoeprint_images[:8]
+                real_shoeprint_images = real_shoeprint_images[:8]
+                real_shoemark_images = real_shoemark_images[:8]
 
-                # Not the most efficient way of doing this but happens rarely and
-                # this covers all batch sizes.
-                shoemark_images = []
+                shoeprint_latents = generator.encode(real_shoeprint_images)
+                shoemark_latents = generator.encode(real_shoemark_images)
+
+                translation_grid_images = []
                 for column in range(8):
-                    column_images = []
-                    column_images.append(shoeprint_images[column][None, ...])
-
-                    for row in range(8):
-                        row_image = generator(
-                            shoeprint_images[column][None, ...],
-                            w[:, row, ...].unsqueeze(1),
+                    column_images = [real_shoeprint_images[column]]
+                    column_images += [
+                        *generator.decode(
+                            shoeprint_latents[column].expand(8, -1, -1, -1), w
                         )
-                        column_images.append(row_image)
+                    ]
+                    translation_grid_images.append(column_images)
 
-                    shoemark_images.append(column_images)
+                save_grid(
+                    translation_grid_images,
+                    f"./checkpoints/images/translation_{step + 1}.png",
+                    (9, 8),
+                )
+
+                w0 = torch.zeros(
+                    (
+                        generator.n_style_blocks,
+                        8,
+                        CONFIG["w_dim"],
+                    ),
+                    device=device,
+                )
+                reconstructed_shoeprints = generator.decode(shoeprint_latents, w0)
+
+                real_shoemark_w = style_extractor(real_shoemark_images)
+                reconstructed_shoemarks = generator.decode(
+                    shoemark_latents,
+                    real_shoemark_w.expand(
+                        generator.n_style_blocks, *real_shoemark_w.shape
+                    ),
+                )
+
+                decoding_grid = [
+                    [
+                        real_shoeprint_images[column],
+                        reconstructed_shoeprints[column],
+                        real_shoemark_images[column],
+                        reconstructed_shoemarks[column],
+                    ]
+                    for column in range(8)
+                ]
+
+                save_grid(
+                    decoding_grid,
+                    f"./checkpoints/images/decoding_{step + 1}.png",
+                    (4, 8),
+                )
+
+                torch.save(
+                    {
+                        "generator_state_dict": generator.state_dict(),
+                        "generator_optim_state_dict": generator_optimiser.state_dict(),
+                        "discriminator_state_dict": discriminator_optimiser.state_dict(),
+                        "discriminator_optim_state_dict": discriminator_optimiser.state_dict(),
+                        "mapping_network_state_dict": mapping_network.state_dict(),
+                        "mapping_network_optim_state_dict": mapping_network_optimiser.state_dict(),
+                        "style_extractor_state_dict": style_extractor.state_dict(),
+                        "style_extractor_optim_state_dict": style_extractor_optimiser.state_dict(),
+                        "ada_p": ada_p(),
+                        "image_buffer_images": image_buffer.images,
+                        "image_buffer_size": image_buffer.buffer_size,
+                    },
+                    f"./checkpoints/models/{step + 1}.tar",
+                )
 
             generator.train()
             mapping_network.train()
-
-            save_grid(step + 1, shoemark_images, "./checkpoints/images")
-
-            torch.save(
-                {
-                    "generator_state_dict": generator.state_dict(),
-                    "generator_optimiser_state_dict": generator_optimiser.state_dict(),
-                    "discriminator_state_dict": discriminator_optimiser.state_dict(),
-                    "discriminator_optimiser_state_dict": discriminator_optimiser.state_dict(),
-                    "mapping_network_state_dict": mapping_network.state_dict(),
-                    "mapping_network_optimiser_state_dict": mapping_network_optimiser.state_dict(),
-                    "style_extractor_state_dict": style_extractor.state_dict(),
-                    "style_extractor_optimiser_state_dict": style_extractor_optimiser.state_dict(),
-                    "ada_p": ada_p(),
-                    "image_buffer_images": image_buffer.images,
-                    "image_buffer_size": image_buffer.buffer_size,
-                },
-                f"./checkpoints/models/{step + 1}.tar",
-            )
+            style_extractor.train()
 
 
 if __name__ == "__main__":

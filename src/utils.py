@@ -1,6 +1,5 @@
 """Miscellaneous utility functions."""
 
-import functools
 import random
 from pathlib import Path
 
@@ -8,11 +7,7 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 
-# I want it to be explicit if I am compiling a function that cannot be fully compiled
-compile_ = functools.partial(
-    torch.compile,
-    fullgraph=True,
-)
+# * Training
 
 
 def save_grid(step: int, images: list[list[torch.Tensor]], save_path: Path | str):

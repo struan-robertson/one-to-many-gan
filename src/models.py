@@ -8,12 +8,10 @@ from torch import nn
 
 from .blocks import Conv2dWeightModulate, ModulatedResnetBlock, ResnetBlock
 from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
-from .utils import compile_
 
 # * Mapping Network
 
 
-@compile_
 class MappingNetwork(nn.Module):
     """Maps from latent vector z to intermediate latent vector w."""
 
@@ -108,7 +106,6 @@ class MappingNetwork(nn.Module):
 # * Generator
 
 
-@compile_
 class Generator(nn.Module):
     """Resnet generator consisting of Resnet blocks between downsampling/upsampling operations."""
 
@@ -230,7 +227,6 @@ class Generator(nn.Module):
 # * Discriminator
 
 
-@compile_
 class Discriminator(nn.Module):
     """Discriminator used in Santa paper."""
 
@@ -265,7 +261,6 @@ class Discriminator(nn.Module):
 # * Style Extractor
 
 
-@compile_
 class StyleExtractor(nn.Module):
     """Given an image, extract the style vector used to create it."""
 

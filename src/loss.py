@@ -4,8 +4,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .utils import compile_
-
 # * Adaptive Discriminator Augmentation
 
 
@@ -59,7 +57,6 @@ class ADAp:
 # ** Style Cycle Loss
 
 
-@compile_
 def style_cycle_loss_func(
     original_w: torch.Tensor,
     reconstructed_w: torch.Tensor,
@@ -82,7 +79,6 @@ def style_cycle_loss_func(
 
 
 # Would be more appropriate to call domain alignment loss
-@compile_
 def kl_loss_func(
     combined_latents: torch.Tensor,
 ):
@@ -99,7 +95,6 @@ def kl_loss_func(
 # ** Path Length Loss
 
 
-@compile_
 def path_loss_func(
     features1: list[torch.Tensor],
     features2: list[torch.Tensor],

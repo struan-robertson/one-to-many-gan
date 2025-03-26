@@ -75,21 +75,19 @@ class Logger:
         self.log_ada_ps = []
 
     def print(self, step: int):
-        calc_mean = lambda x: np.mean(x)
-
         string = (
             f"Step: {step}/{self.training_steps}, "
-            f"D loss: {calc_mean(self.log_total_disc_losses):.6g}, "
-            f"D real/fake acc: {calc_mean(self.log_disc_real_accs):.6g}"
-            f"/{calc_mean(self.log_disc_fake_accs):.6g}, "
-            f"Total G loss: {calc_mean(self.log_total_gen_losses):.6g}, "
-            f"Gan loss {calc_mean(self.log_gan_losses):.6g} "
-            f"Idt loss {calc_mean(self.log_idt_losses):.6g}, "
-            f"Rec loss {calc_mean(self.log_rec_losses):.6g}, "
-            f"KL loss {calc_mean(self.log_kl_losses):.6g}, "
-            f"Path loss {calc_mean(self.log_path_losses):.6g}, "
-            f"Style loss: {calc_mean(self.log_style_losses):.6g}, "
-            f"ADA: {calc_mean(self.log_ada_ps):.6g}, "
+            f"D loss: {np.mean(self.log_total_disc_losses):.6g}, "
+            f"D real/fake acc: {np.mean(self.log_disc_real_accs):.6g}"
+            f"/{np.mean(self.log_disc_fake_accs):.6g}, "
+            f"Total G loss: {np.mean(self.log_total_gen_losses):.6g}, "
+            f"Gan loss {np.mean(self.log_gan_losses):.6g}, "
+            f"Idt loss {np.mean(self.log_idt_losses):.6g}, "
+            f"Rec loss {np.mean(self.log_rec_losses):.6g}, "
+            f"KL loss {np.mean(self.log_kl_losses):.6g}, "
+            f"Path loss {np.mean(self.log_path_losses):.6g}, "
+            f"Style loss: {np.mean(self.log_style_losses):.6g}, "
+            f"ADA: {np.mean(self.log_ada_ps):.6g}, "
         )
 
         self.initialise_trackers()

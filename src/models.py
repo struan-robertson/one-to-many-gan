@@ -192,7 +192,7 @@ class Generator(nn.Module):
         """Decode from latent space z to image, using style vector w."""
         i = 0
         for layer in self.decoder:
-            if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):  # noqa: UP038 (Type unions don't work with torch.compile)
+            if isinstance(layer, ModulatedResnetBlock | Conv2dWeightModulate):
                 z = layer(z, w[i])
                 i += 1
             else:
@@ -205,7 +205,7 @@ class Generator(nn.Module):
         features = []
         i = 0
         for layer in self.decoder:
-            if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):  # noqa: UP038 (Type unions don't work with torch.compile)
+            if isinstance(layer, ModulatedResnetBlock | Conv2dWeightModulate):
                 z = layer(z, w[i])
                 i += 1
 

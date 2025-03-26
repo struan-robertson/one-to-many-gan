@@ -504,10 +504,18 @@ def main():
                     ),
                 )
 
+                translated_shoemarks = generator.decode(
+                    shoeprint_latents,
+                    real_shoemark_w.expand(
+                        generator.n_style_blocks, *real_shoemark_w.shape
+                    ),
+                )
+
                 decoding_grid = [
                     [
                         real_shoeprint_images[column],
                         reconstructed_shoeprints[column],
+                        translated_shoemarks[column],
                         real_shoemark_images[column],
                         reconstructed_shoemarks[column],
                     ]
@@ -517,7 +525,7 @@ def main():
                 save_grid(
                     decoding_grid,
                     f"./checkpoints/images/decoding_{step + 1}.png",
-                    (4, 8),
+                    (5, 8),
                 )
 
                 torch.save(

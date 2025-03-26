@@ -70,6 +70,7 @@ extend-ignore = [
     "N812", # torch.functional as F not f
     "PLR0915", # Training loops can require many statements
     "S311", # I'm not doing any cryptography
+    "TC006", # Cast is OK without quotes
     # Better handled by ruff linter https://docs.astral.sh/ruff/formatter/#format-suppression
     "W191",
     "E111",

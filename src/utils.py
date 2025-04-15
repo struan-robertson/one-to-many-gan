@@ -5,11 +5,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from cleanfid import fid
 from matplotlib import pyplot as plt
 
-# * Training
-
-# ** save_grid
+# * save_grid
 
 
 def save_grid(
@@ -50,49 +49,15 @@ def save_grid(
     plt.ion()
 
 
-# ** Logger
+# * evaluator
 
 
-class Logger:
-    """Keep track of losses/accs."""
+def evaluator(dir1: Path | str, dir2: Path | str):
+    """Calculate FID and KID score between two directories."""
+    fid_score = fid.compute_fid(dir1, dir2, verbose=False)
+    kid_score = fid.compute_kid(dir1, dir2, verbose=False)
 
-    def __init__(self, training_steps: int):
-        self.training_steps = training_steps
-
-        self.initialise_trackers()
-
-    def initialise_trackers(self):
-        self.log_total_disc_losses = []
-        self.log_disc_real_accs = []
-        self.log_disc_fake_accs = []
-        self.log_total_gen_losses = []
-        self.log_gan_losses = []
-        self.log_idt_losses = []
-        self.log_rec_losses = []
-        self.log_kl_losses = []
-        self.log_path_losses = []
-        self.log_style_losses = []
-        self.log_ada_ps = []
-
-    def print(self, step: int):
-        string = (
-            f"Step: {step}/{self.training_steps}, "
-            f"D loss: {np.mean(self.log_total_disc_losses):.6g}, "
-            f"D real/fake acc: {np.mean(self.log_disc_real_accs):.6g}"
-            f"/{np.mean(self.log_disc_fake_accs):.6g}, "
-            f"Total G loss: {np.mean(self.log_total_gen_losses):.6g}, "
-            f"Gan loss {np.mean(self.log_gan_losses):.6g}, "
-            f"Idt loss {np.mean(self.log_idt_losses):.6g}, "
-            f"Rec loss {np.mean(self.log_rec_losses):.6g}, "
-            f"KL loss {np.mean(self.log_kl_losses):.6g}, "
-            f"Path loss {np.mean(self.log_path_losses):.6g}, "
-            f"Style loss: {np.mean(self.log_style_losses):.6g}, "
-            f"ADA: {np.mean(self.log_ada_ps):.6g}, "
-        )
-
-        self.initialise_trackers()
-
-        return string
+    return (fid_score, kid_score)
 
 
 # * Image Buffer
@@ -143,3 +108,48 @@ class ImageBuffer:
                     return_images.append(image_unsqueezed)
 
         return torch.cat(return_images, 0)
+
+
+# * Logger
+
+
+class Logger:
+    """Keep track of losses/accs."""
+
+    def __init__(self, training_steps: int):
+        self.training_steps = training_steps
+
+        self.initialise_trackers()
+
+    def initialise_trackers(self):
+        self.log_total_disc_losses = []
+        self.log_disc_real_accs = []
+        self.log_disc_fake_accs = []
+        self.log_total_gen_losses = []
+        self.log_gan_losses = []
+        self.log_idt_losses = []
+        self.log_rec_losses = []
+        self.log_kl_losses = []
+        self.log_path_losses = []
+        self.log_style_losses = []
+        self.log_ada_ps = []
+
+    def print(self, step: int):
+        string = (
+            f"Step: {step}/{self.training_steps}, "
+            f"D loss: {np.mean(self.log_total_disc_losses):.6g}, "
+            f"D real/fake acc: {np.mean(self.log_disc_real_accs):.6g}"
+            f"/{np.mean(self.log_disc_fake_accs):.6g}, "
+            f"Total G loss: {np.mean(self.log_total_gen_losses):.6g}, "
+            f"Gan loss {np.mean(self.log_gan_losses):.6g}, "
+            f"Idt loss {np.mean(self.log_idt_losses):.6g}, "
+            f"Rec loss {np.mean(self.log_rec_losses):.6g}, "
+            f"KL loss {np.mean(self.log_kl_losses):.6g}, "
+            f"Path loss {np.mean(self.log_path_losses):.6g}, "
+            f"Style loss: {np.mean(self.log_style_losses):.6g}, "
+            f"ADA: {np.mean(self.log_ada_ps):.6g}, "
+        )
+
+        self.initialise_trackers()
+
+        return string

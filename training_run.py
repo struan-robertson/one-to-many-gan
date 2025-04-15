@@ -1,5 +1,6 @@
 """Orchestrate training of model."""
 
+import gc
 import itertools
 import math
 import os
@@ -10,14 +11,15 @@ from typing import cast
 import numpy as np
 import torch
 import torch.utils.data
+import torchvision
 from ada import AdaptiveDiscriminatorAugmentation
 from src.data import ShoeDataset
 from src.loss import ADAp, kl_loss_func, path_loss_func, style_cycle_loss_func
 from src.models import Discriminator, Generator, MappingNetwork, StyleExtractor
-from src.utils import ImageBuffer, Logger, save_grid
+from src.utils import ImageBuffer, Logger, evaluator, save_grid
 from torch import nn
 from torchvision import transforms
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 # * Hyperparameters
 
@@ -32,6 +34,7 @@ CONFIG = {
         0.2,
     ),  # Min and max for sampling h to approximate Jacobian for path length
     "batch_size": 4,
+    "inference_batch_size": 32,
     "image_buffer_size": 100,  # Buffer to hold old generated images
     "w_dim": 6,  # Dimensionality of the style vector
     "image_size": (512, 256),
@@ -54,6 +57,7 @@ CONFIG = {
     "training_steps": 150_000,
     "log_generated_interval": 500,
     "save_checkpoint_interval": 5_000,
+    "evaluation_gen_images": 10_000,
 }
 
 # * Initialisation
@@ -186,8 +190,20 @@ shoeprint_dataloader = torch.utils.data.DataLoader(
     generator=dataloader_g,
 )
 
+shoeprint_val_dataloader = torch.utils.data.DataLoader(
+    shoeprint_data,
+    batch_size=CONFIG["inference_batch_size"],
+    shuffle=False,
+    num_workers=8,
+    drop_last=True,
+    pin_memory=True,
+    worker_init_fn=seed_worker,
+    generator=dataloader_g,
+)
+
 shoemark_iter = itertools.cycle(shoemark_dataloader)
 shoeprint_iter = itertools.cycle(shoeprint_dataloader)
+shoeprint_val_iter = itertools.cycle(shoeprint_val_dataloader)
 
 image_buffer = ImageBuffer(CONFIG["image_buffer_size"])
 
@@ -393,9 +409,7 @@ def generator_step():
 
 def main():
     """Training loop."""
-    for step in tqdm(
-        range(CONFIG["training_steps"]),
-    ):
+    for step in trange(CONFIG["training_steps"], dynamic_ncols=True):
         # set adaptive discriminator augmentation p
         adaptive_discriminator_augmentation.set_p(ada_p())
         logger.log_ada_ps.append(ada_p())
@@ -426,7 +440,7 @@ def main():
         ]:
             log = logger.print(step + 1)
             tqdm.write(log)
-            with Path("./checkpoints/log.txt").open("a") as file:
+            with Path("./checkpoints/log").open("a") as file:
                 file.write(log + "\n")
 
         if (step + 1) % CONFIG["save_checkpoint_interval"] == 0 or (step + 1) == CONFIG[
@@ -436,97 +450,149 @@ def main():
             mapping_network.eval()
             style_extractor.eval()
 
+            # Free memory
+            generator_optimiser.zero_grad(set_to_none=True)
+            mapping_network_optimiser.zero_grad(set_to_none=True)
+            style_extractor_optimiser.zero_grad(set_to_none=True)
+            discriminator_optimiser.zero_grad(set_to_none=True)
+
+            torch.cuda.synchronize()
+            gc.collect()
+            torch.cuda.empty_cache()
+
             with torch.no_grad():
-                # Get styles
-                w = mapping_network.get_w(
-                    batch_size=8,
-                    n_gen_blocks=generator.n_style_blocks,
-                    device=device,
-                    mix_styles=False,
-                    domain_variable=1,
-                )
-                w = cast(torch.Tensor, w)
+                # Bit of a long winded function but uses enough global state so keeping in this file
+                # Declaring it as a function here introduces scope to clear up tensors when done
+                def image_checkpoints(step: int):
+                    w = mapping_network.get_w(
+                        batch_size=8,
+                        n_gen_blocks=generator.n_style_blocks,
+                        device=device,
+                        mix_styles=False,
+                        domain_variable=1,
+                    )
+                    w = cast(torch.Tensor, w)
 
-                # Collect enough shoeprints and shoemarks
-                if CONFIG["batch_size"] < 8:
-                    real_shoeprint_images = [
-                        next(shoeprint_iter).to(device)
-                        for _ in range(math.ceil(8 / CONFIG["batch_size"]))
+                    # Collect enough shoeprints and shoemarks
+                    if CONFIG["batch_size"] < 8:
+                        real_shoeprint_images = [
+                            next(shoeprint_iter).to(device)
+                            for _ in range(math.ceil(8 / CONFIG["batch_size"]))
+                        ]
+                        real_shoemark_images = [
+                            next(shoemark_iter).to(device)
+                            for _ in range(math.ceil(8 / CONFIG["batch_size"]))
+                        ]
+
+                        real_shoeprint_images = torch.cat(real_shoeprint_images, dim=0)
+                        real_shoemark_images = torch.cat(real_shoemark_images, dim=0)
+                    else:
+                        real_shoeprint_images = next(shoeprint_iter).to(device)
+                        real_shoemark_images = next(shoemark_iter).to(device)
+
+                    real_shoeprint_images = real_shoeprint_images[:8]
+                    real_shoemark_images = real_shoemark_images[:8]
+
+                    shoeprint_latents = generator.encode(real_shoeprint_images)
+                    shoemark_latents = generator.encode(real_shoemark_images)
+
+                    translation_grid_images = []
+                    for column in range(8):
+                        column_images = [real_shoeprint_images[column]]
+                        column_images += [
+                            *generator.decode(
+                                shoeprint_latents[column].expand(8, -1, -1, -1), w
+                            )
+                        ]
+                        translation_grid_images.append(column_images)
+
+                    save_grid(
+                        translation_grid_images,
+                        f"./checkpoints/images/translation_{step + 1}.png",
+                        (9, 8),
+                    )
+
+                    w0 = torch.zeros(
+                        (
+                            generator.n_style_blocks,
+                            8,
+                            CONFIG["w_dim"],
+                        ),
+                        device=device,
+                    )
+                    reconstructed_shoeprints = generator.decode(shoeprint_latents, w0)
+
+                    real_shoemark_w = style_extractor(real_shoemark_images)
+                    reconstructed_shoemarks = generator.decode(
+                        shoemark_latents,
+                        real_shoemark_w.expand(
+                            generator.n_style_blocks, *real_shoemark_w.shape
+                        ),
+                    )
+
+                    translated_shoemarks = generator.decode(
+                        shoeprint_latents,
+                        real_shoemark_w.expand(
+                            generator.n_style_blocks, *real_shoemark_w.shape
+                        ),
+                    )
+
+                    decoding_grid = [
+                        [
+                            real_shoeprint_images[column],
+                            reconstructed_shoeprints[column],
+                            translated_shoemarks[column],
+                            real_shoemark_images[column],
+                            reconstructed_shoemarks[column],
+                        ]
+                        for column in range(8)
                     ]
-                    real_shoemark_images = [
-                        next(shoemark_iter).to(device)
-                        for _ in range(math.ceil(8 / CONFIG["batch_size"]))
-                    ]
 
-                    real_shoeprint_images = torch.cat(real_shoeprint_images, dim=0)
-                    real_shoemark_images = torch.cat(real_shoemark_images, dim=0)
-                else:
-                    real_shoeprint_images = next(shoeprint_iter).to(device)
-                    real_shoemark_images = next(shoemark_iter).to(device)
+                    save_grid(
+                        decoding_grid,
+                        f"./checkpoints/images/decoding_{step + 1}.png",
+                        (5, 8),
+                    )
 
-                real_shoeprint_images = real_shoeprint_images[:8]
-                real_shoemark_images = real_shoemark_images[:8]
-
-                shoeprint_latents = generator.encode(real_shoeprint_images)
-                shoemark_latents = generator.encode(real_shoemark_images)
-
-                translation_grid_images = []
-                for column in range(8):
-                    column_images = [real_shoeprint_images[column]]
-                    column_images += [
-                        *generator.decode(
-                            shoeprint_latents[column].expand(8, -1, -1, -1), w
+                def validation_step():
+                    i = 0
+                    for _ in trange(
+                        math.ceil(
+                            CONFIG["evaluation_gen_images"]
+                            / CONFIG["inference_batch_size"]
+                        ),
+                        desc="Generating shoemarks",
+                        leave=False,
+                    ):
+                        shoeprints = next(shoeprint_val_iter).to(device)
+                        w = mapping_network.get_w(
+                            batch_size=CONFIG["inference_batch_size"],
+                            n_gen_blocks=generator.n_style_blocks,
+                            device=device,
+                            mix_styles=False,
+                            domain_variable=1,
                         )
-                    ]
-                    translation_grid_images.append(column_images)
+                        w = cast(torch.Tensor, w)
 
-                save_grid(
-                    translation_grid_images,
-                    f"./checkpoints/images/translation_{step + 1}.png",
-                    (9, 8),
-                )
+                        val_shoemarks = generator(shoeprints, w)
 
-                w0 = torch.zeros(
-                    (
-                        generator.n_style_blocks,
-                        8,
-                        CONFIG["w_dim"],
-                    ),
-                    device=device,
-                )
-                reconstructed_shoeprints = generator.decode(shoeprint_latents, w0)
+                        for shoemark in val_shoemarks:
+                            torchvision.utils.save_image(
+                                shoemark, f"checkpoints/val/{i}.png"
+                            )
+                            i += 1
 
-                real_shoemark_w = style_extractor(real_shoemark_images)
-                reconstructed_shoemarks = generator.decode(
-                    shoemark_latents,
-                    real_shoemark_w.expand(
-                        generator.n_style_blocks, *real_shoemark_w.shape
-                    ),
-                )
+                    fid, kid = evaluator(
+                        "checkpoints/val/",
+                        "/home/struan/Datasets/GAN Partitioned/Shoemarks/train",
+                    )
+                    log = f"Evaluated | fid: {fid}, kid: {kid}"
+                    tqdm.write(log)
+                    with Path("./checkpoints/log").open("a") as file:
+                        file.write(log + "\n")
 
-                translated_shoemarks = generator.decode(
-                    shoeprint_latents,
-                    real_shoemark_w.expand(
-                        generator.n_style_blocks, *real_shoemark_w.shape
-                    ),
-                )
-
-                decoding_grid = [
-                    [
-                        real_shoeprint_images[column],
-                        reconstructed_shoeprints[column],
-                        translated_shoemarks[column],
-                        real_shoemark_images[column],
-                        reconstructed_shoemarks[column],
-                    ]
-                    for column in range(8)
-                ]
-
-                save_grid(
-                    decoding_grid,
-                    f"./checkpoints/images/decoding_{step + 1}.png",
-                    (5, 8),
-                )
+                image_checkpoints(step)
+                validation_step()
 
                 torch.save(
                     {

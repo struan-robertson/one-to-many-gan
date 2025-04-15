@@ -5,13 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "clean-fid>=0.1.35",
     "gdown>=5.2.0",
     "matplotlib>=3.10.1",
     "numpy>=2.2.3",
     "pillow>=11.1.0",
     "pytorch-ada",
     "scipy>=1.15.2",
-    "torch>=2.6.0", 
+    "torch>=2.6.0",
     "torchvision>=0.21.0",
     "tqdm>=4.67.1",
 ]

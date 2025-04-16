@@ -40,8 +40,6 @@ def save_grid(
             )  # Note that images_np is col major, and axes_np is row major
             axes[row_idx, col_idx].set_axis_off()
 
-    save_path.parent.mkdir(exist_ok=True)
-
     plt.subplots_adjust(wspace=0.1, hspace=0.1)
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
@@ -52,10 +50,10 @@ def save_grid(
 # * evaluator
 
 
-def evaluator(dir1: Path | str, dir2: Path | str):
+def evaluator(dir1: Path | str, dir2: Path | str, device):
     """Calculate FID and KID score between two directories."""
-    fid_score = fid.compute_fid(dir1, dir2, verbose=False)
-    kid_score = fid.compute_kid(dir1, dir2, verbose=False)
+    fid_score = fid.compute_fid(dir1, dir2, verbose=False, device=device)
+    kid_score = fid.compute_kid(dir1, dir2, verbose=False, device=device)
 
     return (fid_score, kid_score)
 

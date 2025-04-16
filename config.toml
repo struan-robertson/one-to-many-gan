@@ -1,0 +1,44 @@
+# Config for training and running the model
+
+[training]
+batch_size = 4
+random_seed = 42
+training_steps = 150_000
+image_buffer_size = 100
+style_mixing_prob = 0.9 # Probability to use two different style vectors in the decoder
+deterministic_cuda_kernels = false # Exact results between different GPUs, but 4x slower
+
+[optimisation]
+style_cycle_loss_lambda = 5.0
+identity_loss_lambda = 5.0
+reconstruction_loss_lambda = 5.0
+kl_loss_lambda = 0.01
+path_loss_lambda = 0.1
+path_loss_jacobian_granularity = [0.1, 0.2] # Min and max for sampling h to approximite Jacobian for path length
+learning_rate = 2e-3
+mapping_network_learning_rate = 2e-5 # 100x less
+adam_betas = [0.5, 0.99]
+
+[ada]
+discriminator_real_acc_target = 0.6 # Ideal accuracy of discriminator on real data
+ada_overfitting_measurement_n_images = 256 # Number of images over which to measure D overfitting
+ada_adjustment_size = 5.12e-4 # ADA adjustment amount per image
+
+[evaluation]
+log_interval = 500
+checkpoint_interval = 5_000
+n_evaluation_images = 10_000 # Number of images generated for FID and KID evaluation
+
+[architecture]
+w_dim = 6 # Dimensionality of the style vector
+add_latent_noise = false # Add noise to latent feature maps
+min_latent_resolution = 64
+n_resnet_blocks = 7
+mapping_network_layers = 2
+
+[data]
+image_size = [512, 256]
+image_channels = 1
+shoemark_data_dir = "/home/struan/Datasets/GAN Partitioned Half/Shoemarks"
+shoeprint_data_dir = "/home/struan/Datasets/GAN Partitioned Half/Shoeprints"
+

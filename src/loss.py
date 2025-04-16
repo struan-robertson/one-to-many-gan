@@ -7,13 +7,13 @@ from torch.nn import functional as F
 # * Adaptive Discriminator Augmentation
 
 
-# Can't compile this
+# TODO move to utilities
 class ADAp:
     """Adaptive discriminator augmentation state."""
 
     def __init__(
         self,
-        ada_e: int,
+        ada_e: float,
         ada_adjustment_size: float,
         batch_size: int,
         discriminator_overfitting_target: float,

@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "clean-fid>=0.1.35",
+    "clean-fid",
     "gdown>=5.2.0",
     "matplotlib>=3.10.1",
     "numpy>=2.2.3",
@@ -25,6 +25,7 @@ torchvision = [
   { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 pytorch-ada = { git = "https://github.com/BenediktAlkin/pytorch-ada" }
+clean-fid = { git = "https://github.com/janfb/clean-fid", rev = "fix-dataparallel-device-handling" }
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

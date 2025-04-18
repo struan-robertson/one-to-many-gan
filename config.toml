@@ -7,6 +7,9 @@ training_steps = 150_000
 image_buffer_size = 100
 style_mixing_prob = 0.9 # Probability to use two different style vectors in the decoder
 deterministic_cuda_kernels = false # Exact results between different GPUs, but 4x slower
+gpu_number = 0
+checkpoint_directory = "checkpoints"
+training_run = "run_name"
 
 [optimisation]
 style_cycle_loss_lambda = 5.0

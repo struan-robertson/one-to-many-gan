@@ -13,6 +13,9 @@ class _Training(TypedDict):
     image_buffer_size: int
     style_mixing_prob: float
     deterministic_cuda_kernels: bool
+    gpu_number: int
+    checkpoint_directory: Path
+    training_run: str
 
 
 class _Optimisation(TypedDict):

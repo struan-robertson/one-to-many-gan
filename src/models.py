@@ -46,7 +46,7 @@ class MappingNetwork(nn.Module):
         self,
         batch_size: int,
         n_gen_blocks: int,
-        device: str | int,
+        device: torch.device,
         domain_variable: float
         | torch.Tensor
         | tuple[torch.Tensor, torch.Tensor],  # For path calculation

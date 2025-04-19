@@ -4,6 +4,7 @@ import gc
 import itertools
 import os
 import random
+import sys
 
 import numpy as np
 import torch
@@ -23,181 +24,182 @@ from src.model.loss import ADAp
 from torchvision import transforms
 from tqdm import tqdm, trange
 
-config = load_config("config.toml")
 
-# * Initialisation
+def main(config_path: str):
+    """Orchestrate training."""
+    config = load_config(config_path)
 
-# ** Random Seeding
-torch.manual_seed(config["training"]["random_seed"])
-np.random.default_rng(config["training"]["random_seed"])
-random.seed(config["training"]["random_seed"])
+    # * Initialisation
 
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(config["training"]["random_seed"])
-    if config["training"]["deterministic_cuda_kernels"]:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        torch.use_deterministic_algorithms(mode=True, warn_only=True)
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    # ** Random Seeding
+    torch.manual_seed(config["training"]["random_seed"])
+    np.random.default_rng(config["training"]["random_seed"])
+    random.seed(config["training"]["random_seed"])
 
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config["training"]["random_seed"])
+        if config["training"]["deterministic_cuda_kernels"]:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            torch.use_deterministic_algorithms(mode=True, warn_only=True)
+            os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-def seed_worker(worker_id):
-    """Seed DataLoader workers with random seed."""
-    worker_seed = (
-        config["training"]["random_seed"] + worker_id
-    ) % 2**32  # Ensure we don't overflow 32 bit
-    np.random.default_rng(worker_seed)
-    random.seed(worker_seed)
+    def seed_worker(worker_id):
+        """Seed DataLoader workers with random seed."""
+        worker_seed = (
+            config["training"]["random_seed"] + worker_id
+        ) % 2**32  # Ensure we don't overflow 32 bit
+        np.random.default_rng(worker_seed)
+        random.seed(worker_seed)
 
+    # Passed to dataloaders
+    dataloader_g = torch.Generator()
+    dataloader_g.manual_seed(config["training"]["random_seed"])
 
-# Passed to dataloaders
-dataloader_g = torch.Generator()
-dataloader_g.manual_seed(config["training"]["random_seed"])
+    # ** PyTorch
 
-# ** PyTorch
+    device = torch.device(
+        f"cuda:{config['training']['gpu_number']}"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
 
-device = torch.device(
-    f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
-)
+    torch.set_float32_matmul_precision("medium")
+    torch.backends.cuda.matmul.allow_tf32 = True
 
-torch.set_float32_matmul_precision("medium")
-torch.backends.cuda.matmul.allow_tf32 = True
+    # ** Models
 
-# ** Models
+    discriminator = Discriminator(input_nc=config["data"]["image_channels"]).to(device)
 
-discriminator = Discriminator(input_nc=config["data"]["image_channels"]).to(device)
+    generator = Generator(
+        input_nc=config["data"]["image_channels"],
+        w_dim=config["architecture"]["w_dim"],
+        image_size=config["data"]["image_size"],
+        min_latent_resolution=config["architecture"]["min_latent_resolution"],
+        n_resnet_blocks=config["architecture"]["n_resnet_blocks"],
+    ).to(device)
 
-generator = Generator(
-    input_nc=config["data"]["image_channels"],
-    w_dim=config["architecture"]["w_dim"],
-    image_size=config["data"]["image_size"],
-    min_latent_resolution=config["architecture"]["min_latent_resolution"],
-    n_resnet_blocks=config["architecture"]["n_resnet_blocks"],
-).to(device)
+    mapping_network = MappingNetwork(
+        features=config["architecture"]["w_dim"],
+        n_layers=config["architecture"]["mapping_network_layers"],
+        style_mixing_prob=config["training"]["style_mixing_prob"],
+    ).to(device)
 
-mapping_network = MappingNetwork(
-    features=config["architecture"]["w_dim"],
-    n_layers=config["architecture"]["mapping_network_layers"],
-    style_mixing_prob=config["training"]["style_mixing_prob"],
-).to(device)
+    style_extractor = StyleExtractor(
+        input_nc=config["data"]["image_channels"], w_dim=config["architecture"]["w_dim"]
+    ).to(device)
 
-style_extractor = StyleExtractor(
-    input_nc=config["data"]["image_channels"], w_dim=config["architecture"]["w_dim"]
-).to(device)
+    # ** Optimisers
 
-# ** Optimisers
+    discriminator_optimiser = torch.optim.Adam(
+        discriminator.parameters(),
+        lr=config["optimisation"]["learning_rate"],
+        betas=config["optimisation"]["adam_betas"],
+    )
 
-discriminator_optimiser = torch.optim.Adam(
-    discriminator.parameters(),
-    lr=config["optimisation"]["learning_rate"],
-    betas=config["optimisation"]["adam_betas"],
-)
+    generator_optimiser = torch.optim.Adam(
+        generator.parameters(),
+        lr=config["optimisation"]["learning_rate"],
+        betas=config["optimisation"]["adam_betas"],
+    )
 
-generator_optimiser = torch.optim.Adam(
-    generator.parameters(),
-    lr=config["optimisation"]["learning_rate"],
-    betas=config["optimisation"]["adam_betas"],
-)
+    mapping_network_optimiser = torch.optim.Adam(
+        mapping_network.parameters(),
+        lr=config["optimisation"]["mapping_network_learning_rate"],
+        betas=config["optimisation"]["adam_betas"],
+    )
 
-mapping_network_optimiser = torch.optim.Adam(
-    mapping_network.parameters(),
-    lr=config["optimisation"]["mapping_network_learning_rate"],
-    betas=config["optimisation"]["adam_betas"],
-)
+    style_extractor_optimiser = torch.optim.Adam(
+        style_extractor.parameters(),
+        lr=config["optimisation"]["learning_rate"],
+        betas=config["optimisation"]["adam_betas"],
+    )
 
-style_extractor_optimiser = torch.optim.Adam(
-    style_extractor.parameters(),
-    lr=config["optimisation"]["learning_rate"],
-    betas=config["optimisation"]["adam_betas"],
-)
+    # ** Data
 
-# ** Data
+    transform = transforms.Compose(
+        [
+            transforms.Resize(config["data"]["image_size"]),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,)),
+        ]
+    )
 
-transform = transforms.Compose(
-    [
-        transforms.Resize(config["data"]["image_size"]),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)),
-    ]
-)
+    shoemark_data = ShoeDataset(
+        config["data"]["shoemark_data_dir"], mode="train", transform=transform
+    )
+    shoemark_dataloader = torch.utils.data.DataLoader(
+        shoemark_data,
+        batch_size=config["training"]["batch_size"],
+        shuffle=True,
+        num_workers=8,
+        drop_last=True,
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=dataloader_g,
+    )
 
-shoemark_data = ShoeDataset(
-    config["data"]["shoemark_data_dir"], mode="train", transform=transform
-)
-shoemark_dataloader = torch.utils.data.DataLoader(
-    shoemark_data,
-    batch_size=config["training"]["batch_size"],
-    shuffle=True,
-    num_workers=8,
-    drop_last=True,
-    pin_memory=True,
-    worker_init_fn=seed_worker,
-    generator=dataloader_g,
-)
+    shoeprint_data = ShoeDataset(
+        config["data"]["shoeprint_data_dir"], mode="train", transform=transform
+    )
+    shoeprint_dataloader = torch.utils.data.DataLoader(
+        shoeprint_data,
+        batch_size=config["training"]["batch_size"],
+        shuffle=True,
+        num_workers=8,
+        drop_last=True,
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=dataloader_g,
+    )
 
-shoeprint_data = ShoeDataset(
-    config["data"]["shoeprint_data_dir"], mode="train", transform=transform
-)
-shoeprint_dataloader = torch.utils.data.DataLoader(
-    shoeprint_data,
-    batch_size=config["training"]["batch_size"],
-    shuffle=True,
-    num_workers=8,
-    drop_last=True,
-    pin_memory=True,
-    worker_init_fn=seed_worker,
-    generator=dataloader_g,
-)
+    shoeprint_val_dataloader = torch.utils.data.DataLoader(
+        shoeprint_data,
+        batch_size=config["training"]["batch_size"] * 4,
+        shuffle=False,
+        num_workers=8,
+        drop_last=True,
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=dataloader_g,
+    )
 
-shoeprint_val_dataloader = torch.utils.data.DataLoader(
-    shoeprint_data,
-    batch_size=config["training"]["batch_size"] * 4,
-    shuffle=False,
-    num_workers=8,
-    drop_last=True,
-    pin_memory=True,
-    worker_init_fn=seed_worker,
-    generator=dataloader_g,
-)
+    shoemark_iter = itertools.cycle(shoemark_dataloader)
+    shoeprint_iter = itertools.cycle(shoeprint_dataloader)
+    shoeprint_val_iter = itertools.cycle(shoeprint_val_dataloader)
 
-shoemark_iter = itertools.cycle(shoemark_dataloader)
-shoeprint_iter = itertools.cycle(shoeprint_dataloader)
-shoeprint_val_iter = itertools.cycle(shoeprint_val_dataloader)
+    image_buffer = ImageBuffer(config["training"]["image_buffer_size"])
 
-image_buffer = ImageBuffer(config["training"]["image_buffer_size"])
+    # ** Augmentation
 
-# ** Augmentation
+    adaptive_discriminator_augmentation = AdaptiveDiscriminatorAugmentation(
+        xflip=1,
+        rotate90=1,
+        xint=1,
+        scale=1,
+        rotate=1,
+        aniso=1,
+        xfrac=1,
+        brightness=1,
+        contrast=1,
+        lumaflip=1,
+        hue=1,
+        saturation=1,
+    ).to(device)
 
-adaptive_discriminator_augmentation = AdaptiveDiscriminatorAugmentation(
-    xflip=1,
-    rotate90=1,
-    xint=1,
-    scale=1,
-    rotate=1,
-    aniso=1,
-    xfrac=1,
-    brightness=1,
-    contrast=1,
-    lumaflip=1,
-    hue=1,
-    saturation=1,
-).to(device)
+    ada_p = ADAp(
+        ada_e=config["ada"]["ada_overfitting_measurement_n_images"],
+        ada_adjustment_size=config["ada"]["ada_adjustment_size"],
+        batch_size=config["training"]["batch_size"],
+        discriminator_overfitting_target=config["ada"]["discriminator_real_acc_target"],
+    )
 
-ada_p = ADAp(
-    ada_e=config["ada"]["ada_overfitting_measurement_n_images"],
-    ada_adjustment_size=config["ada"]["ada_adjustment_size"],
-    batch_size=config["training"]["batch_size"],
-    discriminator_overfitting_target=config["ada"]["discriminator_real_acc_target"],
-)
+    # ** Logging
 
-# ** Logging
+    logger = Logger(config["training"]["training_steps"])
 
-logger = Logger(config["training"]["training_steps"])
+    # * Training Loop
 
-# * Training Loop
-
-
-def main():
     """Training loop."""
     for step in trange(config["training"]["training_steps"], dynamic_ncols=True):
         # set adaptive discriminator augmentation p
@@ -318,4 +320,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1] != "":
+        main(sys.argv[1])
+    else:
+        main("config.toml")

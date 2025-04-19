@@ -5,10 +5,9 @@ from collections.abc import Iterator
 
 import torch
 from ada import AdaptiveDiscriminatorAugmentation
-
-from .config import Config
-from .loss import ADAp, kl_loss_func, path_loss_func, style_cycle_loss_func
-from .models import Discriminator, Generator, MappingNetwork, StyleExtractor
+from src.data.config import Config
+from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from src.model.loss import ADAp, kl_loss_func, path_loss_func, style_cycle_loss_func
 
 # Clean up return value code
 _detacher = lambda x: x.detach().cpu().item()

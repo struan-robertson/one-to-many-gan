@@ -9,12 +9,11 @@ import torch
 import torchvision
 from cleanfid import fid
 from matplotlib import pyplot as plt
-from src.loss import ADAp
-from src.training import ImageBuffer
+from src.core.training import ImageBuffer
+from src.data.config import Config
+from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from src.model.loss import ADAp
 from tqdm import tqdm, trange
-
-from .config import Config
-from .models import Discriminator, Generator, MappingNetwork, StyleExtractor
 
 # * Checkpoints
 

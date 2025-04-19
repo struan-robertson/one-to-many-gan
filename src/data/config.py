@@ -1,9 +1,8 @@
 """Define typed config options."""
 
+import tomllib
 from pathlib import Path
 from typing import TypedDict
-
-import tomllib
 
 
 class _Training(TypedDict):
@@ -74,5 +73,12 @@ def load_config(path: Path | str) -> Config:
 
     with path.open("rb") as f:
         config: Config = tomllib.load(f)  # type: ignore[assignment]
+
+    # Initialise Path objects
+    config["training"]["checkpoint_directory"] = Path(
+        config["training"]["checkpoint_directory"]
+    )
+    config["data"]["shoeprint_data_dir"] = Path(config["data"]["shoeprint_data_dir"])
+    config["data"]["shoemark_data_dir"] = Path(config["data"]["shoemark_data_dir"])
 
     return config

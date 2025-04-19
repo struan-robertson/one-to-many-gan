@@ -9,12 +9,17 @@ import numpy as np
 import torch
 import torch.utils.data
 from ada import AdaptiveDiscriminatorAugmentation
-from src.config import load_config
-from src.data import ShoeDataset
-from src.evaluation import Logger, image_checkpoint, model_checkpoint, val_checkpoint
-from src.loss import ADAp
-from src.models import Discriminator, Generator, MappingNetwork, StyleExtractor
-from src.training import ImageBuffer, discriminator_step, generator_step
+from src.core.evaluation import (
+    Logger,
+    image_checkpoint,
+    model_checkpoint,
+    val_checkpoint,
+)
+from src.core.training import ImageBuffer, discriminator_step, generator_step
+from src.data.config import load_config
+from src.data.datasets import ShoeDataset
+from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from src.model.loss import ADAp
 from torchvision import transforms
 from tqdm import tqdm, trange
 
@@ -51,12 +56,12 @@ dataloader_g.manual_seed(config["training"]["random_seed"])
 
 # ** PyTorch
 
-
 device = torch.device(
     f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
 )
 
-torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
+torch.backends.cuda.matmul.allow_tf32 = True
 
 # ** Models
 
@@ -248,11 +253,15 @@ def main():
         ) == config["training"]["training_steps"]:
             log = logger.print(step + 1)
             tqdm.write(log)
-            with (
+
+            log_dir = (
                 config["training"]["checkpoint_directory"]
                 / config["training"]["training_run"]
-                / "log"
-            ).open("a") as file:
+            )
+
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            with (log_dir / "log").open("a") as file:
                 file.write(log + "\n")
 
         if (step + 1) % config["evaluation"]["checkpoint_interval"] == 0 or (

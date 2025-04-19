@@ -16,9 +16,7 @@ from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
 class MappingNetwork(nn.Module):
     """Maps from latent vector z to intermediate latent vector w."""
 
-    def __init__(
-        self, features: int, n_layers: int, w_dim: int, style_mixing_prob: float
-    ):
+    def __init__(self, features: int, n_layers: int, style_mixing_prob: float):
         super().__init__()
 
         self.d_latent = features
@@ -40,7 +38,7 @@ class MappingNetwork(nn.Module):
         self.net = nn.Sequential(*layers)
 
         # Style vector when \theta=0
-        shoeprint_style_vector = torch.zeros((1, 1, w_dim), dtype=torch.float)
+        shoeprint_style_vector = torch.zeros((1, 1, features), dtype=torch.float)
         self.register_buffer(
             "shoeprint_style_vector", shoeprint_style_vector, persistent=False
         )
@@ -85,12 +83,15 @@ class MappingNetwork(nn.Module):
     ) -> torch.Tensor:
         """Apply a domain variable to a single style vector."""
         shoeprint_style_vector = cast(torch.Tensor, self.shoeprint_style_vector)
+
+        if domain_variable == 0:
+            return shoeprint_style_vector.expand(
+                (n_gen_blocks, batch_size, self.d_latent)
+            )
+
         style_vector = self._get_style_vector(
             batch_size, n_gen_blocks, device, mix_styles=mix_styles
         )
-
-        if domain_variable == 0:
-            return shoeprint_style_vector
 
         if isinstance(domain_variable, torch.Tensor):
             # Reshape for broadcasting

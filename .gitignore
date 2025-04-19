@@ -3,3 +3,4 @@
 */__pycache__/*
 /runs/
 /old_runs/
+*.pyc

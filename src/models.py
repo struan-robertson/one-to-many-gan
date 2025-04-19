@@ -41,7 +41,6 @@ class MappingNetwork(nn.Module):
 
         return self.net(z)
 
-    # TODO split into two functions
     def get_w(
         self,
         batch_size: int,

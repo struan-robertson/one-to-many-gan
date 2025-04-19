@@ -2,7 +2,6 @@
 
 import random
 from collections.abc import Iterator
-from typing import cast
 
 import torch
 from ada import AdaptiveDiscriminatorAugmentation
@@ -91,7 +90,7 @@ def discriminator_step(
 
     # Generate fake shoemarks
     shoeprint_images = next(shoeprint_iter).to(device)
-    w = mapping_network.get_w(
+    w = mapping_network.get_single_w(
         batch_size=config["training"]["batch_size"],
         n_gen_blocks=generator.n_style_blocks,
         device=device,
@@ -170,13 +169,12 @@ def generator_step(
     shoeprint_latent, shoemark_latent = combined_latents.chunk(2, dim=0)
 
     # Reconstruction loss
-    reconstruct_w = mapping_network.get_w(
+    reconstruct_w = mapping_network.get_single_w(
         batch_size=config["training"]["batch_size"],
         n_gen_blocks=generator.n_style_blocks,
         device=device,
         domain_variable=0,
     )
-    reconstruct_w = cast(torch.Tensor, reconstruct_w)
     reconstructed_shoeprints = generator.decode(shoeprint_latent, reconstruct_w)
     reconstruction_loss = torch.nn.functional.l1_loss(
         reconstructed_shoeprints, real_shoeprint_images
@@ -193,13 +191,12 @@ def generator_step(
     )
 
     # GAN loss
-    translation_w = mapping_network.get_w(
+    translation_w = mapping_network.get_single_w(
         batch_size=config["training"]["batch_size"],
         n_gen_blocks=generator.n_style_blocks,
         device=device,
         domain_variable=1,
     )
-    translation_w = cast(torch.Tensor, translation_w)
     generated_shoemarks = generator.decode(shoeprint_latent, translation_w)
     augmented_generated_images = ada(generated_shoemarks)
     fake_shoemark_scores = discriminator(augmented_generated_images)
@@ -227,11 +224,11 @@ def generator_step(
     )
     d1 = (theta + cent_fin_diff_h / 2).clamp(0, 1)
     d2 = (theta - cent_fin_diff_h / 2).clamp(0, 1)
-    w1, w2 = mapping_network.get_w(
+    w1, w2 = mapping_network.get_two_w(
         batch_size=config["training"]["batch_size"],
         n_gen_blocks=generator.n_style_blocks,
         device=device,
-        domain_variable=(d1, d2),
+        domain_variables=(d1, d2),
     )
     features1 = generator.extract(shoeprint_latent, w1)
     features2 = generator.extract(shoeprint_latent, w2)

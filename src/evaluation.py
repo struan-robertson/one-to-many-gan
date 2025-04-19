@@ -3,7 +3,6 @@
 import math
 from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import torch
@@ -48,14 +47,13 @@ def val_checkpoint(
         leave=False,
     ):
         shoeprints = next(shoeprint_val_iter).to(device)
-        w = mapping_network.get_w(
+        w = mapping_network.get_single_w(
             batch_size=config["training"]["batch_size"] * 4,
             n_gen_blocks=generator.n_style_blocks,
             device=device,
             mix_styles=False,
             domain_variable=1,
         )
-        w = cast(torch.Tensor, w)
 
         val_shoemarks = generator(shoeprints, w)
 
@@ -65,10 +63,10 @@ def val_checkpoint(
 
     shoemark_train_dir = config["data"]["shoemark_data_dir"] / "train"
     fid_score = fid.compute_fid(
-        val_checkpoint_dir, shoemark_train_dir, verbose=False, device=device
+        str(val_checkpoint_dir), str(shoemark_train_dir), verbose=False, device=device
     )
     kid_score = fid.compute_kid(
-        val_checkpoint_dir, shoemark_train_dir, verbose=False, device=device
+        str(val_checkpoint_dir), str(shoemark_train_dir), verbose=False, device=device
     )
 
     log = f"Step {step + 1} val | fid: {fid_score}, kid: {kid_score}"
@@ -128,14 +126,13 @@ def image_checkpoint(
     style_extractor: StyleExtractor,
 ):
     """Generate and save checkpoint grid images."""
-    w = mapping_network.get_w(
+    w = mapping_network.get_single_w(
         batch_size=8,
         n_gen_blocks=generator.n_style_blocks,
         device=device,
         mix_styles=False,
         domain_variable=1,
     )
-    w = cast(torch.Tensor, w)
 
     image_checkpoint_dir = (
         config["training"]["checkpoint_directory"]

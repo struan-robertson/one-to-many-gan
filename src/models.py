@@ -1,6 +1,7 @@
 """Different models used in overall architecture."""
 
 import math
+from typing import cast
 
 import torch
 import torch.nn.functional as F
@@ -15,7 +16,9 @@ from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
 class MappingNetwork(nn.Module):
     """Maps from latent vector z to intermediate latent vector w."""
 
-    def __init__(self, features: int, n_layers: int, style_mixing_prob: float):
+    def __init__(
+        self, features: int, n_layers: int, w_dim: int, style_mixing_prob: float
+    ):
         super().__init__()
 
         self.d_latent = features
@@ -36,61 +39,58 @@ class MappingNetwork(nn.Module):
 
         self.net = nn.Sequential(*layers)
 
+        # Style vector when \theta=0
+        shoeprint_style_vector = torch.zeros((1, 1, w_dim), dtype=torch.float)
+        self.register_buffer(
+            "shoeprint_style_vector", shoeprint_style_vector, persistent=False
+        )
+
     def forward(self, z: torch.Tensor):
         z = F.normalize(z, dim=1)
 
         return self.net(z)
 
-    def get_w(
+    def get_two_w(
         self,
         batch_size: int,
         n_gen_blocks: int,
         device: torch.device,
-        domain_variable: float
-        | torch.Tensor
-        | tuple[torch.Tensor, torch.Tensor],  # For path calculation
+        domain_variables: tuple[torch.Tensor, torch.Tensor],
         *,
         mix_styles=True,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        """Sample z randomly and get w from mapping network."""
-        if domain_variable == 0:
-            return torch.zeros(
-                (n_gen_blocks, batch_size, self.d_latent),
-                dtype=torch.float,
-                device=device,
-            )
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply two domain variables to the same style vector."""
+        d1, d2 = domain_variables
 
-        if mix_styles and torch.rand(()).lt(self.style_mixing_prob):
-            cross_over_point = torch.randint(0, n_gen_blocks, ())
-
-            z1 = torch.randn(batch_size, self.d_latent).to(device)
-            z2 = torch.randn(batch_size, self.d_latent).to(device)
-
-            w1 = self.forward(z1)
-            w2 = self.forward(z2)
-
-            w1 = w1[None, :, :].expand(cross_over_point, -1, -1)
-            w2 = w2[None, :, :].expand(n_gen_blocks - cross_over_point, -1, -1)
-            w = torch.cat((w1, w2), dim=0)
-        else:
-            z = torch.randn(batch_size, self.d_latent).to(device)
-            w = self.forward(z)
-            w = w[None, :, :].expand(n_gen_blocks, -1, -1)
-
-        # Style vector when \theta=0
-        shoeprint_style_vector = torch.zeros(
-            (1, 1) + w.shape[2:], dtype=torch.float, device=device
+        style_vector = self._get_style_vector(
+            batch_size, n_gen_blocks, device, mix_styles=mix_styles
         )
 
-        if isinstance(domain_variable, tuple):
-            d1, d2 = domain_variable
+        shoeprint_style_vector = cast(torch.Tensor, self.shoeprint_style_vector)
+        w1 = torch.lerp(
+            shoeprint_style_vector, style_vector, d1.view(1, -1, 1)
+        )  # d1: [1, batch_dim, 1]
+        w2 = torch.lerp(shoeprint_style_vector, style_vector, d2.view(1, -1, 1))
 
-            w1 = torch.lerp(
-                shoeprint_style_vector, w, d1.view(1, -1, 1)
-            )  # d1: [1, batch_dim, 1]
-            w2 = torch.lerp(shoeprint_style_vector, w, d2.view(1, -1, 1))
+        return w1, w2
 
-            return w1, w2
+    def get_single_w(
+        self,
+        batch_size: int,
+        n_gen_blocks: int,
+        device: torch.device,
+        domain_variable: float | torch.Tensor,
+        *,
+        mix_styles=True,
+    ) -> torch.Tensor:
+        """Apply a domain variable to a single style vector."""
+        shoeprint_style_vector = cast(torch.Tensor, self.shoeprint_style_vector)
+        style_vector = self._get_style_vector(
+            batch_size, n_gen_blocks, device, mix_styles=mix_styles
+        )
+
+        if domain_variable == 0:
+            return shoeprint_style_vector
 
         if isinstance(domain_variable, torch.Tensor):
             # Reshape for broadcasting
@@ -100,7 +100,35 @@ class MappingNetwork(nn.Module):
                 1, 1, 1
             )
 
-        return torch.lerp(shoeprint_style_vector, w, d)
+        return torch.lerp(shoeprint_style_vector, style_vector, d)
+
+    def _get_style_vector(
+        self,
+        batch_size: int,
+        n_gen_blocks: int,
+        device: torch.device,
+        *,
+        mix_styles=True,
+    ) -> torch.Tensor:
+        """Sample z randomly and get style vector s from mapping network."""
+        if mix_styles and torch.rand(()).lt(self.style_mixing_prob):
+            cross_over_point = torch.randint(0, n_gen_blocks, ())
+
+            z1 = torch.randn(batch_size, self.d_latent).to(device)
+            z2 = torch.randn(batch_size, self.d_latent).to(device)
+
+            s1 = self.forward(z1)
+            s2 = self.forward(z2)
+
+            s1 = s1[None, :, :].expand(cross_over_point, -1, -1)
+            s2 = s2[None, :, :].expand(n_gen_blocks - cross_over_point, -1, -1)
+            s = torch.cat((s1, s2), dim=0)
+        else:
+            z = torch.randn(batch_size, self.d_latent).to(device)
+            s = self.forward(z)
+            s = s[None, :, :].expand(n_gen_blocks, -1, -1)
+
+        return s
 
 
 # * Generator

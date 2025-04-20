@@ -39,6 +39,7 @@ class _Evaluation(TypedDict):
     log_interval: int
     checkpoint_interval: int
     n_evaluation_images: int
+    inference_batch_size: int
 
 
 class _Architecture(TypedDict):

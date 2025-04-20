@@ -31,6 +31,7 @@ ada_adjustment_size = 5.12e-4 # ADA adjustment amount per image
 log_interval = 500
 checkpoint_interval = 5_000
 n_evaluation_images = 10_000 # Number of images generated for FID and KID evaluation
+inference_batch_size = 32
 
 [architecture]
 w_dim = 6 # Dimensionality of the style vector

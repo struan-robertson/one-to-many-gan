@@ -155,7 +155,7 @@ def main(config_path: str):
 
     shoeprint_val_dataloader = torch.utils.data.DataLoader(
         shoeprint_data,
-        batch_size=config["training"]["batch_size"] * 4,
+        batch_size=config["evaluation"]["inference_batch_size"],
         shuffle=False,
         num_workers=8,
         drop_last=True,
@@ -320,7 +320,7 @@ def main(config_path: str):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] != "":
-        main(sys.argv[1])
-    else:
+    if len(sys.argv) < 2 or sys.argv[1] == "":
         main("config.toml")
+    else:
+        main(sys.argv[1])

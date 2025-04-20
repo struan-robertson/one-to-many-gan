@@ -40,14 +40,14 @@ def val_checkpoint(
     for _ in trange(
         math.ceil(
             config["evaluation"]["n_evaluation_images"]
-            / (config["training"]["batch_size"] * 4)
+            / config["evaluation"]["inference_batch_size"]
         ),
         desc="Generating shoemarks",
         leave=False,
     ):
         shoeprints = next(shoeprint_val_iter).to(device)
         w = mapping_network.get_single_w(
-            batch_size=config["training"]["batch_size"] * 4,
+            batch_size=config["evaluation"]["inference_batch_size"],
             n_gen_blocks=generator.n_style_blocks,
             device=device,
             mix_styles=False,
@@ -57,7 +57,7 @@ def val_checkpoint(
         val_shoemarks = generator(shoeprints, w)
 
         for shoemark in val_shoemarks:
-            torchvision.utils.save_image(shoemark, val_checkpoint_dir / f"/{i}.png")
+            torchvision.utils.save_image(shoemark, val_checkpoint_dir / f"{i}.png")
             i += 1
 
     shoemark_train_dir = config["data"]["shoemark_data_dir"] / "train"
@@ -71,7 +71,12 @@ def val_checkpoint(
     log = f"Step {step + 1} val | fid: {fid_score}, kid: {kid_score}"
     tqdm.write(log)
 
-    with Path("./checkpoints/log").open("a") as file:
+    log_checkpoint_dir = (
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "log"
+    )
+    with log_checkpoint_dir.open("a") as file:
         file.write(log + "\n")
 
 
@@ -173,7 +178,7 @@ def image_checkpoint(
 
     save_grid(
         translation_grid_images,
-        image_checkpoint_dir / f"/translation_{step + 1}.png",
+        image_checkpoint_dir / f"translation_{step + 1}.png",
         (9, 8),
     )
 
@@ -211,7 +216,7 @@ def image_checkpoint(
 
     save_grid(
         decoding_grid,
-        image_checkpoint_dir / f"/decoding_{step + 1}.png",
+        image_checkpoint_dir / f"decoding_{step + 1}.png",
         (5, 8),
     )
 
@@ -254,7 +259,7 @@ def model_checkpoint(
             "image_buffer_images": image_buffer.images,
             "image_buffer_size": image_buffer.buffer_size,
         },
-        models_checkpoint_dir / f"/{step + 1}.tar",
+        models_checkpoint_dir / f"{step + 1}.tar",
     )
 
 

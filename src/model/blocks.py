@@ -13,7 +13,6 @@ class ResnetBlock(nn.Module):
         self,
         dim: int,
         *,
-        use_dropout: bool = False,
         use_bias: bool = False,
     ):
         super().__init__()
@@ -23,11 +22,6 @@ class ResnetBlock(nn.Module):
             EqualisedConv2d(dim, dim, kernel_size=3, padding=0, use_bias=use_bias),
             nn.InstanceNorm2d(dim),
             nn.ReLU(inplace=True),
-        ]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
-
-        conv_block += [
             nn.ReflectionPad2d(1),
             EqualisedConv2d(dim, dim, kernel_size=3, padding=0, use_bias=use_bias),
             nn.InstanceNorm2d(dim),
@@ -47,7 +41,6 @@ class ModulatedResnetBlock(nn.Module):
         dim: int,
         w_dim: int,
         *,
-        use_dropout: bool = False,
         use_bias: bool = False,
     ):
         super().__init__()
@@ -58,11 +51,6 @@ class ModulatedResnetBlock(nn.Module):
                 dim, dim, w_dim=w_dim, kernel_size=3, padding=0, use_bias=use_bias
             ),
             nn.ReLU(inplace=True),
-        ]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
-
-        conv_block += [
             nn.ReflectionPad2d(1),
             Conv2dWeightModulate(
                 dim, dim, w_dim=w_dim, kernel_size=3, padding=0, use_bias=use_bias

@@ -68,7 +68,7 @@ def val_checkpoint(
         str(val_checkpoint_dir), str(shoemark_train_dir), verbose=False, device=device
     )
 
-    log = f"Step {step + 1} val | fid: {fid_score}, kid: {kid_score}"
+    log = f"Step {step + 1} | fid: {fid_score}, kid: {kid_score}"
     tqdm.write(log)
 
     log_checkpoint_dir = (

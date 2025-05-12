@@ -12,25 +12,29 @@ dependencies = [
     "pillow>=11.1.0",
     "pytorch-ada",
     "scipy>=1.15.2",
-    "torch>=2.6.0",
-    "torchvision>=0.21.0",
+    "torch>=2.7.0",
+    "torchvision>=0.22.0",
+    "pytorch-triton-rocm",
     "tqdm>=4.67.1",
     "pytorch-image-generation-metrics>=0.6.1",
 ]
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+  { index = "pytorch-rocm", marker = "sys_platform == 'linux'"},
 ]
 torchvision = [
-  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+  { index = "pytorch-rocm", marker = "sys_platform == 'linux'" },
 ]
 pytorch-ada = { git = "https://github.com/BenediktAlkin/pytorch-ada" }
 clean-fid = { git = "https://github.com/janfb/clean-fid", rev = "fix-dataparallel-device-handling" }
+pytorch-triton-rocm = [
+  { index = "pytorch-rocm", marker = "sys_platform == 'linux'" },
+]
 
 [[tool.uv.index]]
-name = "pytorch-cu126"
-url = "https://download.pytorch.org/whl/cu126"
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm6.3"
 explicit = true
 
 [tool.uv]
@@ -90,37 +94,3 @@ extend-ignore = [
     "ISC002",
 ]
 
-# Fix for https://github.com/astral-sh/uv/issues/11945
-[[tool.uv.dependency-metadata]]
-name = "torch"
-version = "2.6.0+cu126"
-requires-python = ">=3.9.0"
-requires-dist = [
-    'filelock',
-    'typing-extensions>=4.10.0',
-    'setuptools; python_version >= "3.12"',
-    'sympy==1.13.1; python_version >= "3.9"',
-    'networkx',
-    'jinja2',
-    'fsspec',
-    'nvidia-cuda-nvrtc-cu12==12.6.77; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cuda-runtime-cu12==12.6.77; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cuda-cupti-cu12==12.6.80; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cudnn-cu12==9.5.1.17; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cublas-cu12==12.6.4.1; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cufft-cu12==11.3.0.4; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-curand-cu12==10.3.7.77; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cusolver-cu12==11.7.1.2; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cusparse-cu12==12.5.4.2; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-cusparselt-cu12==0.6.3; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-nccl-cu12==2.21.5; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-nvtx-cu12==12.6.77; platform_system == "Linux" and platform_machine == "x86_64"',
-    'nvidia-nvjitlink-cu12==12.6.85; platform_system == "Linux" and platform_machine == "x86_64"',
-    'triton==3.2.0; platform_system == "Linux" and platform_machine == "x86_64"',
-    'optree>=0.13.0; extra == "optree"',
-    'opt-einsum>=3.3; extra == "opt-einsum"',
-]
-provides-extras = [
-    'optree',
-    'opt-einsum'
-]

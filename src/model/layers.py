@@ -71,9 +71,7 @@ class EqualisedConv2d(nn.Module):
         else:
             kernel_height, kernel_width = kernel_size
 
-        self.weight = EqualisedWeight(
-            [out_features, in_features, kernel_height, kernel_width]
-        )
+        self.weight = EqualisedWeight([out_features, in_features, kernel_height, kernel_width])
 
         self.use_bias = use_bias
         if use_bias:
@@ -129,9 +127,7 @@ class Conv2dWeightModulate(nn.Module):
         self.out_features = out_features
         self.demodulate = demodulate
         self.padding = padding
-        self.weight = EqualisedWeight(
-            [out_features, in_features, kernel_size, kernel_size]
-        )
+        self.weight = EqualisedWeight([out_features, in_features, kernel_size, kernel_size])
         self.eps = eps
         self.use_bias = use_bias
 
@@ -154,9 +150,7 @@ class Conv2dWeightModulate(nn.Module):
         weights = weights * s
 
         if self.demodulate:
-            sigma_inv = torch.rsqrt(
-                (weights**2).sum(dim=(2, 3, 4), keepdim=True) + self.eps
-            )
+            sigma_inv = torch.rsqrt((weights**2).sum(dim=(2, 3, 4), keepdim=True) + self.eps)
 
             weights = weights * sigma_inv
 
@@ -220,9 +214,7 @@ class UpSample(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.up_sample = nn.Upsample(
-            scale_factor=2, mode="bilinear", align_corners=False
-        )
+        self.up_sample = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
         self.smooth = Smooth()
 
     def forward(self, x: torch.Tensor):

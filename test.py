@@ -1,8 +1,7 @@
 """Utilities for running tests on trained models."""
 
-# * Imports
-
 import itertools
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +14,7 @@ from src.data.datasets import ShoeDataset, dataset_transform
 from src.model.builder import Generator, MappingNetwork, StyleExtractor
 
 
-def main(config_path: str):
+def main(config_path: str, saved_models_path: str | Path):
     """Orchestrate evaluation."""
     # * Config
 
@@ -32,7 +31,7 @@ def main(config_path: str):
 
     def load_checkpoint(path: Path):
         """Load model state from checkpoint dictionary."""
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, map_location=device)
 
         generator.load_state_dict(checkpoint["generator_state_dict"])
         mapping_network.load_state_dict(checkpoint["mapping_network_state_dict"])
@@ -81,10 +80,11 @@ def main(config_path: str):
     shoeprints = next(itertools.cycle(shoeprint_val_dataloader))
 
     # * Evaluation
+    saved_models_path = Path(saved_models_path)
 
-    training_runs = [entry for entry in Path("evaluations/").iterdir() if entry.is_dir()]
+    training_runs = [entry for entry in saved_models_path.iterdir() if entry.is_dir()]
 
-    work = len(training_runs) * 15 * 100
+    work = sum(1 for p in saved_models_path.rglob("*.tar") if p.is_file()) * 100
 
     with tqdm(total=work) as pbar:
         for run in training_runs:
@@ -108,4 +108,8 @@ def main(config_path: str):
                 mean_score = np.mean(inception_scores)
 
                 with (run / "scores.txt").open("a") as f:
-                    f.write(f"{checkpoint.stem}: {mean_score}")
+                    f.write(f"{checkpoint.stem}: {mean_score}\n")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], sys.argv[2])

@@ -81,9 +81,7 @@ def val_checkpoint(
 ):
     """Calculate FID and KID scores and save to checkpoint."""
     val_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "val"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "val"
     )
     val_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -123,9 +121,7 @@ def val_checkpoint(
     tqdm.write(log)
 
     log_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "log"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "log"
     )
     with log_checkpoint_dir.open("a") as file:
         file.write(log + "\n")
@@ -190,9 +186,7 @@ def image_checkpoint(
     )
 
     image_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "images"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "images"
     )
     image_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -222,9 +216,7 @@ def image_checkpoint(
     translation_grid_images = []
     for column in range(8):
         column_images = [real_shoeprint_images[column]]
-        column_images += [
-            *generator.decode(shoeprint_latents[column].expand(8, -1, -1, -1), w)
-        ]
+        column_images += [*generator.decode(shoeprint_latents[column].expand(8, -1, -1, -1), w)]
         translation_grid_images.append(column_images)
 
     save_grid(
@@ -291,9 +283,7 @@ def model_checkpoint(
 ):
     """Save all network training state to file."""
     models_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "models"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "models"
     )
     models_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     torch.save(

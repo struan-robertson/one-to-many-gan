@@ -5,6 +5,7 @@ from collections.abc import Iterator
 
 import torch
 from ada import AdaptiveDiscriminatorAugmentation
+
 from src.data.config import Config
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
 from src.model.loss import ADAp, kl_loss_func, path_loss_func, style_cycle_loss_func
@@ -52,9 +53,7 @@ class ImageBuffer:
             else:
                 p = random.uniform(0, 1)
                 if p > 0.5:
-                    random_id = random.randint(
-                        0, self.buffer_size - 1
-                    )  # randint is inclusive
+                    random_id = random.randint(0, self.buffer_size - 1)  # randint is inclusive
                     # Clone tensors as they may be used many times
                     cloned_image = self.images[random_id].clone()
                     self.images[random_id] = image_unsqueezed
@@ -185,9 +184,7 @@ def generator_step(
         shoemark_latent,
         real_shoemark_w.expand(generator.n_style_blocks, *real_shoemark_w.shape),
     )
-    identity_loss = torch.nn.functional.l1_loss(
-        reconstructed_shoemarks, real_shoemark_images
-    )
+    identity_loss = torch.nn.functional.l1_loss(reconstructed_shoemarks, real_shoemark_images)
 
     # GAN loss
     translation_w = mapping_network.get_single_w(

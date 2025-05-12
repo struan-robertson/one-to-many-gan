@@ -4,3 +4,4 @@
 /runs/
 /old_runs/
 *.pyc
+/evaluations/

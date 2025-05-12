@@ -39,6 +39,7 @@ class _Evaluation(TypedDict):
     log_interval: int
     checkpoint_interval: int
     n_evaluation_images: int
+    cond_is_n_evaluation_images: int
     inference_batch_size: int
 
 
@@ -76,9 +77,7 @@ def load_config(path: Path | str) -> Config:
         config: Config = tomllib.load(f)  # type: ignore[assignment]
 
     # Initialise Path objects
-    config["training"]["checkpoint_directory"] = Path(
-        config["training"]["checkpoint_directory"]
-    )
+    config["training"]["checkpoint_directory"] = Path(config["training"]["checkpoint_directory"])
     config["data"]["shoeprint_data_dir"] = Path(config["data"]["shoeprint_data_dir"])
     config["data"]["shoemark_data_dir"] = Path(config["data"]["shoemark_data_dir"])
 

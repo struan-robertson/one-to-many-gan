@@ -3,21 +3,72 @@
 import math
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torchvision
 from cleanfid import fid
 from matplotlib import pyplot as plt
+from pytorch_image_generation_metrics import get_inception_score
+from tqdm import tqdm, trange
+
 from src.core.training import ImageBuffer
 from src.data.config import Config
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
 from src.model.loss import ADAp
-from tqdm import tqdm, trange
 
 # * Checkpoints
 
 # ** Validation
+
+
+def validate_single(
+    config: Config,
+    device: torch.device,
+    shoeprint: torch.Tensor,
+    mapping_network: MappingNetwork,
+    generator: Generator,
+):
+    """Calculate FID and KID scores for individual images and then mean."""
+    shoeprints = shoeprint.expand(config["evaluation"]["inference_batch_size"], -1, -1, -1).to(
+        device
+    )
+
+    shoemark_batches = []
+    for _ in range(
+        math.ceil(
+            config["evaluation"]["cond_is_n_evaluation_images"]
+            / config["evaluation"]["inference_batch_size"]
+        )
+    ):
+        w = mapping_network.get_single_w(
+            batch_size=config["evaluation"]["inference_batch_size"],
+            n_gen_blocks=generator.n_style_blocks,
+            device=device,
+            mix_styles=False,
+            domain_variable=1,
+        )
+
+        shoemarks = generator(shoeprints, w)
+
+        shoemarks_min = shoemarks.min()
+        shoemarks_max = shoemarks.max()
+        safe_range = shoemarks_max - shoemarks_min + 1e-8
+        shoemarks = (shoemarks - shoemarks_min) / safe_range
+
+        shoemarks = F.interpolate(
+            shoemarks, (299, 299), mode="bicubic", align_corners=False, antialias=True
+        )
+
+        shoemark_batches.append(shoemarks.expand(-1, 3, -1, -1))
+
+    combined_tensors = torch.cat(shoemark_batches, dim=0)
+    combined_tensors = cast(torch.FloatTensor, combined_tensors)
+
+    si, _ = get_inception_score(combined_tensors, use_torch=True)
+    return si
 
 
 def val_checkpoint(

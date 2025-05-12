@@ -5,9 +5,20 @@ from typing import Literal
 
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision import transforms as T
+from torchvision import transforms
 
 _dataset_mode = Literal["train", "test", "val"]
+
+
+def dataset_transform(image_size: tuple[int, int]):
+    """Initialise transforms for a dataset."""
+    return transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,)),
+        ]
+    )
 
 
 class ShoeDataset(Dataset):
@@ -40,7 +51,7 @@ class ShoeDataset(Dataset):
             images.append(image)
 
         self.images = images
-        self.hflipper = T.RandomHorizontalFlip(flip_prob)
+        self.hflipper = transforms.RandomHorizontalFlip(flip_prob)
 
     def __len__(self):
         return len(self.images)
@@ -77,9 +88,7 @@ class Edges2ShoesDataset(Dataset):
             image = Image.open(image_file)
 
             image = (
-                image.crop((0, 0, 256, 256))
-                if type_ == "edge"
-                else image.crop((256, 0, 512, 256))
+                image.crop((0, 0, 256, 256)) if type_ == "edge" else image.crop((256, 0, 512, 256))
             )
 
             image = transform(image)

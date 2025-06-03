@@ -10,6 +10,9 @@ import numpy as np
 import torch
 import torch.utils.data
 from ada import AdaptiveDiscriminatorAugmentation
+from torchvision import transforms
+from tqdm import tqdm, trange
+
 from src.core.evaluation import (
     Logger,
     image_checkpoint,
@@ -21,8 +24,6 @@ from src.data.config import load_config
 from src.data.datasets import ShoeDataset
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
 from src.model.loss import ADAp
-from torchvision import transforms
-from tqdm import tqdm, trange
 
 
 def main(config_path: str):
@@ -59,9 +60,7 @@ def main(config_path: str):
     # ** PyTorch
 
     device = torch.device(
-        f"cuda:{config['training']['gpu_number']}"
-        if torch.cuda.is_available()
-        else "cpu"
+        f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
     )
 
     torch.set_float32_matmul_precision("medium")
@@ -250,15 +249,14 @@ def main(config_path: str):
         logger.log_path_losses.append(path_loss)
         logger.log_style_losses.append(style_loss)
 
-        if (step + 1) % config["evaluation"]["log_interval"] == 0 or (
-            step + 1
-        ) == config["training"]["training_steps"]:
+        if (step + 1) % config["evaluation"]["log_interval"] == 0 or (step + 1) == config[
+            "training"
+        ]["training_steps"]:
             log = logger.print(step + 1)
             tqdm.write(log)
 
             log_dir = (
-                config["training"]["checkpoint_directory"]
-                / config["training"]["training_run"]
+                config["training"]["checkpoint_directory"] / config["training"]["training_run"]
             )
 
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -266,9 +264,9 @@ def main(config_path: str):
             with (log_dir / "log").open("a") as file:
                 file.write(log + "\n")
 
-        if (step + 1) % config["evaluation"]["checkpoint_interval"] == 0 or (
-            step + 1
-        ) == config["training"]["training_steps"]:
+        if (step + 1) % config["evaluation"]["checkpoint_interval"] == 0 or (step + 1) == config[
+            "training"
+        ]["training_steps"]:
             generator.eval()
             mapping_network.eval()
             style_extractor.eval()
@@ -295,9 +293,7 @@ def main(config_path: str):
                     style_extractor,
                 )
 
-                val_checkpoint(
-                    step, config, device, shoeprint_val_iter, mapping_network, generator
-                )
+                val_checkpoint(step, config, device, shoeprint_val_iter, mapping_network, generator)
 
                 model_checkpoint(
                     step,

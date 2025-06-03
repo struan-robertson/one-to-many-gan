@@ -66,11 +66,12 @@ def style_cycle_loss_func(
 ):
     """Calculate cycle consistency loss for style vector w."""
     if normalise:
-        original_w = F.normalize(original_w, dim=-1)
-        reconstructed_w = F.normalize(reconstructed_w, dim=-1)
+        norm_original_w = F.normalize(original_w, dim=-1)
+        norm_reconstructed_w = F.normalize(reconstructed_w, dim=-1)
+        cos_loss = 1 - F.cosine_similarity(norm_original_w, norm_reconstructed_w, dim=-1).mean()
+    else:
+        cos_loss = 1 - F.cosine_similarity(original_w, reconstructed_w, dim=-1).mean()
 
-    # Calculate cycle loss
-    cos_loss = 1 - F.cosine_similarity(original_w, reconstructed_w, dim=-1).mean()
     l2_loss = F.mse_loss(original_w, reconstructed_w)
     return cos_loss + cos_l2_ratio * l2_loss
 

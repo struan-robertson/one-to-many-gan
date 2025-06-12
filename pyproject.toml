@@ -17,6 +17,8 @@ dependencies = [
     "pytorch-triton-rocm",
     "tqdm>=4.67.1",
     "pytorch-image-generation-metrics>=0.6.1",
+    "opencv-python>=4.11.0.86",
+    "line-profiler>=4.2.0",
 ]
 
 [tool.uv.sources]

@@ -35,7 +35,6 @@ def main(config_path: str, saved_models_path: str | Path):
 
         generator.load_state_dict(checkpoint["generator_state_dict"])
         mapping_network.load_state_dict(checkpoint["mapping_network_state_dict"])
-        mapping_network.load_state_dict(checkpoint["mapping_network_state_dict"])
 
     # Models
     generator = (

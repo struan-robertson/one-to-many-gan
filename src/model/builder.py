@@ -39,15 +39,14 @@ class MappingNetwork(nn.Module):
 
         # Style vector when \theta=0
         shoeprint_style_vector = torch.zeros((1, 1, features), dtype=torch.float)
-        self.register_buffer(
-            "shoeprint_style_vector", shoeprint_style_vector, persistent=False
-        )
+        self.register_buffer("shoeprint_style_vector", shoeprint_style_vector, persistent=False)
 
     def forward(self, z: torch.Tensor):
         z = F.normalize(z, dim=1)
 
         return self.net(z)
 
+    # TODO rename to get_two_s
     def get_two_w(
         self,
         batch_size: int,
@@ -85,9 +84,7 @@ class MappingNetwork(nn.Module):
         shoeprint_style_vector = cast(torch.Tensor, self.shoeprint_style_vector)
 
         if domain_variable == 0:
-            return shoeprint_style_vector.expand(
-                (n_gen_blocks, batch_size, self.d_latent)
-            )
+            return shoeprint_style_vector.expand((n_gen_blocks, batch_size, self.d_latent))
 
         style_vector = self._get_style_vector(
             batch_size, n_gen_blocks, device, mix_styles=mix_styles
@@ -97,9 +94,7 @@ class MappingNetwork(nn.Module):
             # Reshape for broadcasting
             d = domain_variable.view(1, -1, 1)
         else:  # Scalar case
-            d = torch.tensor(domain_variable, dtype=torch.float, device=device).view(
-                1, 1, 1
-            )
+            d = torch.tensor(domain_variable, dtype=torch.float, device=device).view(1, 1, 1)
 
         return torch.lerp(shoeprint_style_vector, style_vector, d)
 
@@ -151,9 +146,7 @@ class Generator(nn.Module):
 
         filters = start_filters
         min_image_resolution = min(image_size)
-        n_downsamples = math.ceil(
-            math.log2(min_image_resolution / min_latent_resolution)
-        )
+        n_downsamples = math.ceil(math.log2(min_image_resolution / min_latent_resolution))
         n_encoder_resnet_blocks = n_resnet_blocks // 2
         n_decoder_resnet_blocks = math.ceil(n_resnet_blocks / 2)
 
@@ -182,17 +175,14 @@ class Generator(nn.Module):
 
         # Decoder portion of resnet blocks
         decoder = [
-            ModulatedResnetBlock(filters, w_dim=w_dim)
-            for _ in range(n_decoder_resnet_blocks)
+            ModulatedResnetBlock(filters, w_dim=w_dim) for _ in range(n_decoder_resnet_blocks)
         ]
 
         # Upsample to image dimensions
         for _ in range(n_downsamples):
             decoder += [
                 UpSample(),
-                Conv2dWeightModulate(
-                    filters, filters // 2, kernel_size=3, padding=1, w_dim=w_dim
-                ),
+                Conv2dWeightModulate(filters, filters // 2, kernel_size=3, padding=1, w_dim=w_dim),
                 nn.ReLU(inplace=True),
             ]
             filters //= 2
@@ -208,8 +198,7 @@ class Generator(nn.Module):
 
         self.n_style_blocks = sum(
             [
-                isinstance(m, ModulatedResnetBlock | Conv2dWeightModulate)
-                for m in self.decoder
+                isinstance(m, ModulatedResnetBlock | Conv2dWeightModulate) for m in self.decoder
             ]  # Use list comprehension instead of generator for compatibility with torch.compile
         )
 

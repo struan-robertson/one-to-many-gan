@@ -5,3 +5,6 @@
 /old_runs/
 *.pyc
 /evaluations/
+/example_shoemarks/
+/flooring/
+/*.lprof

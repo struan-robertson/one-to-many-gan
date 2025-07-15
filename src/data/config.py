@@ -17,6 +17,15 @@ class _Training(TypedDict):
     training_run: str
 
 
+class _SiameseTraining(TypedDict):
+    batch_size: int
+
+
+class _Inference(TypedDict):
+    checkpoint: Path
+    batch_size: int
+
+
 class _Optimisation(TypedDict):
     style_cycle_loss_lambda: float
     identity_loss_lambda: float
@@ -40,7 +49,6 @@ class _Evaluation(TypedDict):
     checkpoint_interval: int
     n_evaluation_images: int
     cond_is_n_evaluation_images: int
-    inference_batch_size: int
 
 
 class _Architecture(TypedDict):
@@ -62,6 +70,8 @@ class Config(TypedDict):
     """Config options used for training and running the model."""
 
     training: _Training
+    siamese_training: _SiameseTraining
+    inference: _Inference
     optimisation: _Optimisation
     ada: _Ada
     evaluation: _Evaluation
@@ -80,5 +90,6 @@ def load_config(path: Path | str) -> Config:
     config["training"]["checkpoint_directory"] = Path(config["training"]["checkpoint_directory"])
     config["data"]["shoeprint_data_dir"] = Path(config["data"]["shoeprint_data_dir"])
     config["data"]["shoemark_data_dir"] = Path(config["data"]["shoemark_data_dir"])
+    config["inference"]["checkpoint"] = Path(config["inference"]["checkpoint"])
 
     return config

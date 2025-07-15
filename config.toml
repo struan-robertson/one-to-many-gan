@@ -11,6 +11,15 @@ gpu_number = 0
 checkpoint_directory = "checkpoints"
 training_run = "run_name"
 
+# TODO make this and one to many training children of a general "training" heading
+[siamese_training]
+batch_size = 4
+
+
+[inference]
+checkpoint = "/home/struan/Vault/University/Doctorate/GAN Training/training_runs/no_ada/models/150000.tar"
+batch_size = 12
+
 [optimisation]
 style_cycle_loss_lambda = 5.0
 identity_loss_lambda = 5.0
@@ -31,7 +40,8 @@ ada_adjustment_size = 5.12e-4 # ADA adjustment amount per image
 log_interval = 500
 checkpoint_interval = 5_000
 cond_is_n_evaluation_images = 100 # Number of images generated for conditional inception score
-inference_batch_size = 50
+n_evaluation_images = 10_000
+
 
 [architecture]
 w_dim = 6 # Dimensionality of the style vector
@@ -43,6 +53,6 @@ mapping_network_layers = 2
 [data]
 image_size = [512, 256]
 image_channels = 1
-shoemark_data_dir = "/home/struan/Datasets/GAN Partitioned Half/Shoemarks"
-shoeprint_data_dir = "/home/struan/Datasets/GAN Partitioned Half/Shoeprints"
+shoemark_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half/Shoemarks"
+shoeprint_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half/Shoeprints"
 

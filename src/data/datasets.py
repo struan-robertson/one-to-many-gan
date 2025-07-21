@@ -61,6 +61,44 @@ class ShoeDataset(Dataset):
         return self.hflipper(images)
 
 
+class LabeledShoeDataset(Dataset):
+    """Load shoe images into RAM. Returns (image, filename) pairs."""
+
+    def __init__(
+        self,
+        path: Path | str,
+        *,
+        mode: _dataset_mode,
+        transform,
+        flip_prob: float = 0.5,
+    ):
+        path = Path(path).expanduser() / mode
+
+        jpg_files = list(path.rglob("*.jpg"))
+        png_files = list(path.rglob("*.png"))
+
+        self.image_files = jpg_files + png_files  # Store filenumerate
+
+        if len(self.image_files) == 0:
+            raise FileNotFoundError
+
+        images = []
+        for image_file in self.image_files:
+            image = Image.open(image_file)
+            images.append(transform(image))
+
+        self.images = images
+        self.hflipper = transforms.RandomHorizontalFlip(flip_prob)
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx: int):
+        image = self.images[idx]
+        filename = self.image_files[idx].stem  # Extract filename
+        return (self.hflipper(image), filename)  # Return two elements
+
+
 class Edges2ShoesDataset(Dataset):
     """Load shoe images into RAM."""
 

@@ -11,12 +11,13 @@ class SharedSiamese(nn.Module):
     def __init__(self, embedding_size=128):
         super().__init__()
 
-        self.resnet = torchvision.models.resnet18(weights=None)
+        self.model = torchvision.models.efficientnet_v2_s(weights=None)
 
-        # Modify first conv for 512x256 grayscale (1-channel) input
-        # self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         # Replace final FC layer to get embeddings
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, embedding_size)
+        fc = nn.Sequential(
+            nn.Linear(self.model.classifier[1].in_features, 500), nn.Linear(500, embedding_size)
+        )
+        self.model.classifier = fc
 
     def forward(self, x):
-        return self.resnet(x)
+        return self.model(x)

@@ -1,7 +1,11 @@
 """Train a Siamese model using images generated on the fly."""
 
-import numpy as np
+import math
+import random
+from pathlib import Path
+
 import torch
+from seamless_clone import clone
 from torch import nn
 from tqdm import tqdm, trange
 
@@ -16,7 +20,7 @@ model_size = "s"
 pre_trained = False
 
 p_val = 2
-margin = 2
+margin = 0.5
 
 triplet_loss = nn.TripletMarginLoss(margin=margin, p=p_val, swap=True)
 
@@ -26,14 +30,19 @@ model = SharedSiamese().to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), weight_decay=1e-4)
 
-batch_size = 32
+batch_size = 4
 
 generator = GeneratorHandler(config, device, batch_size)
+
+random.seed(config["training"]["random_seed"])
+
+flooring_images = list(Path("flooring/").glob("*"))
+flooring_images = [str(f) for f in flooring_images if f.is_file()]
 
 
 # Find negatives closer to the anchor than positives
 # Violating d(anchor, positive) + margin < d(anchor, negative)
-def training_loop(steps: int, print_iter: int):
+def training_loop(steps: int, print_iter: int, val_iter: int):
     """Run training loop for siamese model."""
     previous_positives: torch.Tensor | None = None
 
@@ -41,11 +50,24 @@ def training_loop(steps: int, print_iter: int):
     avg_size = 0
 
     for step in trange(steps):
-        shoeprints, shoemarks1, shoemarks2 = generator.generate(1)
+        shoeprints, shoemarks1, shoemarks2 = generator.generate(0)
 
         shoeprints = shoeprints.expand(batch_size, 3, 512, 256)
         shoemarks1 = shoemarks1.expand(batch_size, 3, 512, 256)
         shoemarks2 = shoemarks2.expand(batch_size, 3, 512, 256)
+
+        floor_images = random.sample(flooring_images, batch_size * 2)
+        combined_shoemarks = torch.cat((shoemarks1, shoemarks2), dim=0).cpu()
+
+        # batch, channel, height, width
+        shoemarks_with_background = clone(
+            combined_shoemarks.permute(0, 2, 3, 1).contiguous(), floor_images
+        )
+
+        # batch, height, width, channel
+        shoemarks_with_background = shoemarks_with_background.permute(0, 3, 1, 2).cuda()
+
+        shoemarks1, shoemarks2 = torch.split(shoemarks_with_background, batch_size)
 
         previous_positives = shoemarks1
 
@@ -55,7 +77,7 @@ def training_loop(steps: int, print_iter: int):
         negative = (
             model(previous_positives)
             if previous_positives is not None
-            else model(generator.generate(1)[1].expand(batch_size, 3, 512, 256))
+            else model(generator.generate(0)[1].expand(batch_size, 3, 512, 256))
         )
 
         anchor_positive1_dist = torch.norm(anchor - positive1, p=p_val, dim=1)
@@ -101,11 +123,15 @@ def training_loop(steps: int, print_iter: int):
             losses = 0
             avg_size = 0
 
+        if step % val_iter == 0 and step != 0:
+            val = validate()
+            tqdm.write(f"Validation: p5 = {val}")
+
         output.backward()
         optimizer.step()
 
 
-def test():
+def validate(p: int = 5):
     """Test saved model."""
     with torch.no_grad():
         transform = dataset_transform(config["data"]["image_size"])
@@ -122,7 +148,7 @@ def test():
 
         shoeprints = list(shoeprint_dataloader)
         shoemarks = [
-            generator.generate_from_shoeprint(shoeprint.to(device), 0.3).detach().cpu()
+            generator.generate_from_shoeprint(shoeprint.to(device), 0).detach().cpu()
             for shoeprint in shoeprints
         ]
 
@@ -145,8 +171,10 @@ def test():
             sorted_indices = torch.argsort(norms)
             rank = (sorted_indices == i).nonzero(as_tuple=True)[0].item()
 
-            print(rank)
-
             ranks.append(rank)
 
-        print(f"Mean rank: {np.mean(ranks)}")
+        k = math.ceil((len(ranks) / 100) * p)
+
+        count_higher = sum(1 for rank in ranks if rank <= k)
+
+        return count_higher / len(ranks)

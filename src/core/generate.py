@@ -76,7 +76,7 @@ class GeneratorHandler:
         )
 
     # TODO make generator so I can call next() on it
-    def generate(self, difficulty: int):
+    def generate(self, difficulty: float):
         with torch.no_grad():
             shoeprints = next(self.shoeprint_cycle).to(self.device)
 
@@ -102,7 +102,7 @@ class GeneratorHandler:
 
             return shoeprints, shoemarks1, shoemarks2
 
-    def generate_from_shoeprint(self, shoeprint: torch.Tensor, difficulty: int):
+    def generate_from_shoeprint(self, shoeprint: torch.Tensor, difficulty: float):
         with torch.no_grad():
             s = self.mapping_network.get_single_w(
                 batch_size=1,
@@ -113,3 +113,15 @@ class GeneratorHandler:
             )
 
             return self.generator(shoeprint, s)
+
+    def generate_from_shoeprints(self, shoeprints: torch.Tensor, difficulty: float):
+        with torch.no_grad():
+            s = self.mapping_network.get_single_w(
+                batch_size=shoeprints.shape[0],
+                n_gen_blocks=self.generator.n_style_blocks,
+                device=self.device,
+                mix_styles=False,
+                domain_variable=difficulty,
+            )
+
+            return self.generator(shoeprints, s)

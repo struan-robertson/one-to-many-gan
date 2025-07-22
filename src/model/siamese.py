@@ -10,14 +10,18 @@ from torch import nn
 class SharedSiamese(nn.Module):
     def __init__(self, embedding_size=128):
         super().__init__()
+        # Create ResNet-50 model without pretrained weights
+        self.model = torchvision.models.resnet50(weights=None)
 
-        self.model = torchvision.models.efficientnet_v2_s(weights=None)
+        # Replace final FC layer with embedding layers
+        self.model.fc = nn.Linear(self.model.fc.in_features, embedding_size)
 
-        # Replace final FC layer to get embeddings
-        fc = nn.Sequential(
-            nn.Linear(self.model.classifier[1].in_features, 500), nn.Linear(500, embedding_size)
-        )
-        self.model.classifier = fc
+        self.model.apply(self.init_weights)
 
     def forward(self, x):
         return self.model(x)
+
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)

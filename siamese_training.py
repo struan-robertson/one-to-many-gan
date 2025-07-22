@@ -1,17 +1,14 @@
 """Train a Siamese model using images generated on the fly."""
 
-import math
 import random
-from pathlib import Path
 
 import torch
-from seamless_clone import clone
+import torch.nn.functional as F
 from torch import nn
-from tqdm import tqdm, trange
+from tqdm import tqdm
 
-from src.core.generate import GeneratorHandler
 from src.data.config import load_config
-from src.data.datasets import ShoeDataset, dataset_transform
+from src.data.datasets import LabeledCombinedDataset, dataset_transform
 from src.model.siamese import SharedSiamese
 
 config = load_config("config.toml")
@@ -28,153 +25,138 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 model = SharedSiamese().to(device)
 
-optimizer = torch.optim.AdamW(model.parameters(), weight_decay=1e-4)
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
 
-batch_size = 4
-
-generator = GeneratorHandler(config, device, batch_size)
+batch_size = 16
 
 random.seed(config["training"]["random_seed"])
 
-flooring_images = list(Path("flooring/").glob("*"))
-flooring_images = [str(f) for f in flooring_images if f.is_file()]
+dataset = LabeledCombinedDataset(
+    config["data"]["shoeprint_data_dir"],
+    config["data"]["shoemark_data_dir"],
+    mode="train",
+    transform=dataset_transform(config["data"]["image_size"]),
+)
+
+loader = torch.utils.data.DataLoader(
+    dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True, drop_last=True
+)
 
 
 # Find negatives closer to the anchor than positives
 # Violating d(anchor, positive) + margin < d(anchor, negative)
-def training_loop(steps: int, print_iter: int, val_iter: int):
+def training_loop(epochs: int, print_iter: int):
     """Run training loop for siamese model."""
-    previous_positives: torch.Tensor | None = None
-
     losses = 0
     avg_size = 0
 
-    for step in trange(steps):
-        shoeprints, shoemarks1, shoemarks2 = generator.generate(0)
+    with tqdm(total=(epochs * len(dataset)) // batch_size) as pbar:
+        val = validate()
+        pbar.write(f"Validation: p5 = {val}")
+        for epoch in range(epochs):
+            pbar.set_description(f"Epoch: {epoch}")
 
-        shoeprints = shoeprints.expand(batch_size, 3, 512, 256)
-        shoemarks1 = shoemarks1.expand(batch_size, 3, 512, 256)
-        shoemarks2 = shoemarks2.expand(batch_size, 3, 512, 256)
+            for step, (shoeprint_batch, shoemark_batch) in enumerate(loader):
+                shoeprints = shoeprint_batch.to(device)
+                shoemarks = shoemark_batch.to(device)
 
-        floor_images = random.sample(flooring_images, batch_size * 2)
-        combined_shoemarks = torch.cat((shoemarks1, shoemarks2), dim=0).cpu()
+                # Get embeddings
+                anchors = model(shoeprints)  # [b, d]
 
-        # batch, channel, height, width
-        shoemarks_with_background = clone(
-            combined_shoemarks.permute(0, 2, 3, 1).contiguous(), floor_images
-        )
+                positives = model(shoemarks.flatten(0, 1)).unflatten(
+                    0, (shoemarks.shape[0], 5)
+                )  # [b, 5, d]
+                anchors = F.normalize(anchors, p=2, dim=1)  # L2-normalise
+                positives = F.normalize(positives, p=2, dim=2)
 
-        # batch, height, width, channel
-        shoemarks_with_background = shoemarks_with_background.permute(0, 3, 1, 2).cuda()
+                # Squared L2 distances: anchors vs all positives (across batch)
+                anchors_exp = anchors.unsqueeze(1)  # [b, 1, d]
+                positives_exp = positives.flatten(0, 1).unsqueeze(0)  # [1, b*5, d]
+                dist_matrix = (anchors_exp - positives_exp).pow(2).sum(dim=2)  # b, b*5
 
-        shoemarks1, shoemarks2 = torch.split(shoemarks_with_background, batch_size)
+                # Mask for valid triplets (anchor vs other identities' positives)
+                identity_mask = torch.eye(anchors.shape[0], device=device)  # [b, b]
+                identity_mask = identity_mask.repeat_interleave(5, dim=1)  # [b, b*5]
+                neg_mask = ~identity_mask.bool()  # Take negatives from different shoes
 
-        previous_positives = shoemarks1
+                batch_losses = torch.tensor(0.0).to(device)
+                count = 0
+                for i in range(anchors.shape[0]):
+                    # For current anchor, get its 5 positives
+                    pos_start, pos_end = i * 5, (i + 1) * 5
+                    d_ap = dist_matrix[i, pos_start:pos_end]  # [5] distances to its positives
 
-        anchor = model(shoeprints)
-        positive1 = model(shoemarks1)
-        positive2 = model(shoemarks2)
-        negative = (
-            model(previous_positives)
-            if previous_positives is not None
-            else model(generator.generate(0)[1].expand(batch_size, 3, 512, 256))
-        )
+                    for d_pos in d_ap:
+                        # Semi-hard condition: d_pos < d_an < d_pos + alpha
+                        valid_negs = (
+                            (dist_matrix[i] > d_pos)
+                            & (dist_matrix[i] < d_pos + margin)
+                            & neg_mask[i]
+                        )
+                        if not valid_negs.any():
+                            continue  # Skip if no valid semi-hard triplets
 
-        anchor_positive1_dist = torch.norm(anchor - positive1, p=p_val, dim=1)
-        anchor_positive2_dist = torch.norm(anchor - positive2, p=p_val, dim=1)
-        anchor_negative_dist = torch.norm(anchor - negative, p=p_val, dim=1)
+                        # Find closest negative in the valid band
+                        d_semi_hard = dist_matrix[i, valid_negs].min()
+                        batch_losses += F.relu(d_pos - d_semi_hard + margin)
+                        count += 1
 
-        anchors = []
-        positives = []
-        negatives = []
-        for i in range(anchor.shape[0]):
-            if (
-                anchor_positive1_dist[i]
-                < anchor_negative_dist[i]
-                < anchor_positive2_dist[i] + margin
-            ):
-                anchors.append(anchor[i])
-                positives.append(positive1[i])
-                negatives.append(negative[i])
-            elif (
-                anchor_positive2_dist[i]
-                < anchor_negative_dist[i]
-                < anchor_positive1_dist[i] + margin
-            ):
-                anchors.append(anchor[i])
-                positives.append(positive2[i])
-                negatives.append(negative[i])
+                loss = batch_losses / count if count > 0 else torch.tensor(0.0)
+                losses += loss.item()
+                avg_size += count
 
-        if len(anchors) == 0:
-            continue
+                if step % print_iter == 0 and step != 0:
+                    pbar.write(f"{(losses / print_iter)} | avg batch size {avg_size / print_iter}")
+                    losses = 0
+                    avg_size = 0
 
-        avg_size += len(anchors)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-        anchors = torch.stack(anchors, dim=0)
-        positives = torch.stack(positives, dim=0)
-        negatives = torch.stack(negatives, dim=0)
+                pbar.update()
 
-        output = triplet_loss(anchors, positives, negatives)
-
-        losses += output.item()
-
-        if step % print_iter == 0 and step != 0:
-            tqdm.write(f"{(losses / print_iter)} | avg batch size {avg_size / print_iter}")
-            losses = 0
-            avg_size = 0
-
-        if step % val_iter == 0 and step != 0:
             val = validate()
-            tqdm.write(f"Validation: p5 = {val}")
-
-        output.backward()
-        optimizer.step()
+            pbar.write(f"Validation: p5 = {val}")
 
 
+@torch.no_grad()
 def validate(p: int = 5):
     """Test saved model."""
-    with torch.no_grad():
-        transform = dataset_transform(config["data"]["image_size"])
-        shoeprint_data = ShoeDataset(
-            config["data"]["shoeprint_data_dir"], mode="val", transform=transform
-        )
-        shoeprint_dataloader = torch.utils.data.DataLoader(
-            shoeprint_data,
-            batch_size=1,
-            shuffle=False,
-            num_workers=4,
-            drop_last=True,
-        )
+    model.eval()
+    dataset = LabeledCombinedDataset(
+        config["data"]["shoeprint_data_dir"],
+        config["data"]["shoemark_data_dir"],
+        mode="val",
+        transform=dataset_transform(config["data"]["image_size"]),
+    )
 
-        shoeprints = list(shoeprint_dataloader)
-        shoemarks = [
-            generator.generate_from_shoeprint(shoeprint.to(device), 0).detach().cpu()
-            for shoeprint in shoeprints
-        ]
+    val_dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        drop_last=True,
+    )
 
-        shoeprint_embeddings = [
-            model(shoeprint.to(device).expand(1, 3, 512, 256)).detach().cpu().squeeze()
-            for shoeprint in shoeprints
-        ]
-        shoemark_embeddings = [
-            model(shoemark.to(device).expand(1, 3, 512, 256)).detach().cpu().squeeze()
-            for shoemark in shoemarks
-        ]
-        shoemark_embeddings = torch.stack(shoemark_embeddings)
+    # Process in batches to save memory
+    all_p_embs, all_m_embs = [], []
+    for shoeprint, shoemark in val_dataloader:
+        all_p_embs.append(model(shoeprint.to(device)).cpu())
+        all_m_embs.append(model(shoemark.to(device)).cpu())
 
-        ranks = []
+    model.train()
 
-        for i, shoeprint_embedding in enumerate(shoeprint_embeddings):
-            diff = shoemark_embeddings - shoeprint_embedding.unsqueeze(0)
-            norms = torch.norm(diff, p=p_val, dim=1)
+    shoemark_embeddings = torch.cat(all_m_embs)  # [N, d]
+    shoeprint_embeddings = torch.cat(all_p_embs)  # [N, d]
 
-            sorted_indices = torch.argsort(norms)
-            rank = (sorted_indices == i).nonzero(as_tuple=True)[0].item()
+    # Pairwise distances matrix [N, N]
+    dists = torch.cdist(shoeprint_embeddings, shoemark_embeddings, p=p_val)
 
-            ranks.append(rank)
+    # Get ranks (position of correct match in sorted distances)
+    ranks = (dists.diag().unsqueeze(1) >= dists).sum(dim=1).float()
 
-        k = math.ceil((len(ranks) / 100) * p)
+    # Calculate top-p% accuracy
+    k = max(1, int(len(dataset) * p / 100))
 
-        count_higher = sum(1 for rank in ranks if rank <= k)
-
-        return count_higher / len(ranks)
+    return (ranks <= k).float().mean().item()

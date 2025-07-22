@@ -28,7 +28,7 @@ flooring_images = [str(f) for f in flooring_images if f.is_file()]
 
 transform = dataset_transform(config["data"]["image_size"])
 shoeprint_data = LabeledShoeDataset(
-    config["data"]["shoeprint_data_dir"], mode="train", transform=transform
+    config["data"]["shoeprint_data_dir"], mode="val", transform=transform
 )
 shoeprint_dataloader = torch.utils.data.DataLoader(
     shoeprint_data,
@@ -43,8 +43,10 @@ shoeprint_cycle = itertools.cycle(shoeprint_dataloader)
 def generate(number: int, output_dir: Path | str, min_difficulty: float, max_difficulty: float):
     output_dir = Path(output_dir)
 
+    steps = number // batch_size
+
     epoch = 0
-    for i in trange(number):
+    for i in trange(steps):
         shoeprints, labels = next(shoeprint_cycle)
 
         difficulty = random.uniform(min_difficulty, max_difficulty)

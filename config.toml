@@ -15,9 +15,8 @@ training_run = "run_name"
 [siamese_training]
 batch_size = 4
 
-
 [inference]
-checkpoint = "/home/struan/Vault/University/Doctorate/GAN Training/training_runs/no_ada/models/150000.tar"
+checkpoint = "/home/struan/one-to-many-gan/checkpoints/bkp/no_ada/models/150000.tar"
 batch_size = 12
 
 [optimisation]
@@ -53,6 +52,6 @@ mapping_network_layers = 2
 [data]
 image_size = [512, 256]
 image_channels = 1
-shoemark_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half/Shoemarks"
-shoeprint_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half/Shoeprints"
+shoemark_data_dir = "/home/struan/Datasets/Generated Shoemarks"
+shoeprint_data_dir = "/home/struan/Datasets/GAN Partitioned Half/Shoeprints"
 

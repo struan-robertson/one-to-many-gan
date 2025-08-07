@@ -11,10 +11,6 @@ gpu_number = 0
 checkpoint_directory = "checkpoints"
 training_run = "run_name"
 
-# TODO make this and one to many training children of a general "training" heading
-[siamese_training]
-batch_size = 4
-
 [inference]
 checkpoint = "/home/struan/one-to-many-gan/checkpoints/bkp/no_ada/models/150000.tar"
 batch_size = 12

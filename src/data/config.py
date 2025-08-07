@@ -17,10 +17,6 @@ class _Training(TypedDict):
     training_run: str
 
 
-class _SiameseTraining(TypedDict):
-    batch_size: int
-
-
 class _Inference(TypedDict):
     checkpoint: Path
     batch_size: int
@@ -70,7 +66,6 @@ class Config(TypedDict):
     """Config options used for training and running the model."""
 
     training: _Training
-    siamese_training: _SiameseTraining
     inference: _Inference
     optimisation: _Optimisation
     ada: _Ada

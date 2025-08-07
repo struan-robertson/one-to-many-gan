@@ -11,7 +11,7 @@ from tqdm import tqdm
 from src.core.evaluation import validate_single
 from src.data.config import load_config
 from src.data.datasets import ShoeDataset, dataset_transform
-from src.model.builder import Generator, MappingNetwork, StyleExtractor
+from src.model.builder import Generator, MappingNetwork
 
 
 def main(config_path: str, saved_models_path: str | Path):
@@ -53,7 +53,7 @@ def main(config_path: str, saved_models_path: str | Path):
         MappingNetwork(
             features=config["architecture"]["w_dim"],
             n_layers=config["architecture"]["mapping_network_layers"],
-            style_mixing_prob=config["training"]["style_mixing_prob"],
+            style_mixing_prob=0,
         )
         .to(device)
         .eval()
@@ -61,7 +61,9 @@ def main(config_path: str, saved_models_path: str | Path):
 
     # * Data
 
-    transform = dataset_transform(config["data"]["image_size"])
+    transform = dataset_transform(
+        config["data"]["image_size"], config["data"]["norm_mean"], config["data"]["norm_std"]
+    )
 
     shoeprint_val_data = ShoeDataset(
         config["data"]["shoeprint_data_dir"], mode="is_val", transform=transform
@@ -71,7 +73,7 @@ def main(config_path: str, saved_models_path: str | Path):
         shoeprint_val_data,
         batch_size=100,
         shuffle=False,
-        num_workers=8,
+        num_workers=0,
         drop_last=True,
         pin_memory=True,
     )
@@ -79,6 +81,7 @@ def main(config_path: str, saved_models_path: str | Path):
     shoeprints = next(itertools.cycle(shoeprint_val_dataloader))
 
     # * Evaluation
+
     saved_models_path = Path(saved_models_path)
 
     training_runs = [entry for entry in saved_models_path.iterdir() if entry.is_dir()]

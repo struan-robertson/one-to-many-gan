@@ -1,56 +1,7 @@
 """Losses and penalties."""
 
 import torch
-from torch import nn
 from torch.nn import functional as F
-
-# * Adaptive Discriminator Augmentation
-
-
-# TODO move to utilities
-class ADAp:
-    """Adaptive discriminator augmentation state."""
-
-    def __init__(
-        self,
-        ada_e: float,
-        ada_adjustment_size: float,
-        batch_size: int,
-        discriminator_overfitting_target: float,
-    ):
-        # Number of batches required to reach images to calculate mean overfitting
-        self.n_batches = ada_e // batch_size
-        # Amount to adjust ADA each time
-        self.ada_adjustment = ada_adjustment_size * ada_e
-
-        self.overfitting_target = discriminator_overfitting_target
-
-        self.p = torch.zeros(())
-        self.curr_batch = 0
-        self.mean_real_scores = []
-
-    def update_p(self, mean_score: torch.Tensor):
-        if self.curr_batch == self.n_batches:
-            self.mean_real_scores.append(mean_score)
-
-            mean_sign = torch.mean(torch.stack(self.mean_real_scores))
-
-            if mean_sign < self.overfitting_target:
-                self.p -= self.ada_adjustment
-            elif mean_sign > self.overfitting_target:
-                self.p += self.ada_adjustment
-
-            self.curr_batch = 0
-            self.mean_real_scores = []
-
-            self.p = nn.functional.relu(self.p, inplace=True)
-
-        self.curr_batch += 1
-        self.mean_real_scores.append(mean_score)
-
-    def __call__(self) -> float:
-        return self.p.item()
-
 
 # * Loss Functions
 

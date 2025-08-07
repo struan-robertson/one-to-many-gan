@@ -50,7 +50,9 @@ class GeneratorHandler:
         self.generator = generator
         self.mapping_network = mapping_network
 
-        transform = dataset_transform(config["data"]["image_size"])
+        transform = dataset_transform(
+            config["data"]["image_size"], config["data"]["norm_mean"], config["data"]["norm_std"]
+        )
         shoeprint_data = ShoeDataset(
             config["data"]["shoeprint_data_dir"], mode="train", transform=transform
         )
@@ -97,8 +99,6 @@ class GeneratorHandler:
 
             shoemarks1 = self.generator(shoeprints, s1)
             shoemarks2 = self.generator(shoeprints, s2)
-            # shoemarks1 = self.transforms(shoemarks1)
-            # shoemarks2 = self.transforms(shoemarks2)
 
             return shoeprints, shoemarks1, shoemarks2
 

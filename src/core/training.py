@@ -4,11 +4,10 @@ import random
 from collections.abc import Iterator
 
 import torch
-from ada import AdaptiveDiscriminatorAugmentation
 
 from src.data.config import Config
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
-from src.model.loss import ADAp, kl_loss_func, path_loss_func, style_cycle_loss_func
+from src.model.loss import kl_loss_func, path_loss_func, style_cycle_loss_func
 
 # Clean up return value code
 _detacher = lambda x: x.detach().cpu().item()
@@ -77,8 +76,6 @@ def discriminator_step(
     shoeprint_iter: Iterator[torch.Tensor],
     shoemark_iter: Iterator[torch.Tensor],
     image_buffer: ImageBuffer,
-    ada: AdaptiveDiscriminatorAugmentation,
-    ada_p: ADAp,
 ):
     """Take a step with the discriminator and return loss."""
     # Scale from [0,1] to [-1,1] and then take sign as indication of judgement
@@ -96,15 +93,13 @@ def discriminator_step(
     )
     generated_shoemarks = generator(shoeprint_images, w)
     buffered_shoemarks = image_buffer(generated_shoemarks)
-    augmented_fake_shoemarks = ada(buffered_shoemarks)
 
     # Get real shoemarks
     real_shoemarks = next(shoemark_iter).to(device)
-    augmented_real_shoemarks = ada(real_shoemarks)
 
     # Calculate discriminator scores
-    fake_scores = discriminator(augmented_fake_shoemarks)
-    real_scores = discriminator(augmented_real_shoemarks)
+    fake_scores = discriminator(buffered_shoemarks)
+    real_scores = discriminator(real_shoemarks)
 
     # Calculate losses
     real_loss = torch.nn.functional.mse_loss(real_scores, torch.ones_like(real_scores))
@@ -114,9 +109,6 @@ def discriminator_step(
     # Calculate discriminator confidence
     sign_real = discriminator_confidence(real_scores.detach())
     sign_fake = discriminator_confidence(fake_scores.detach()) * -1
-
-    # Update ADA p value
-    ada_p.update_p(sign_real)
 
     disc_loss.backward()
     discriminator_optimiser.step()
@@ -144,7 +136,6 @@ def generator_step(
     style_extractor_optimiser: torch.optim.Optimizer,
     shoeprint_iter: Iterator[torch.Tensor],
     shoemark_iter: Iterator[torch.Tensor],
-    ada: AdaptiveDiscriminatorAugmentation,
 ):
     """Take a step with the generator and return loss."""
     generator_optimiser.zero_grad()
@@ -194,8 +185,7 @@ def generator_step(
         domain_variable=1,
     )
     generated_shoemarks = generator.decode(shoeprint_latent, translation_w)
-    augmented_generated_images = ada(generated_shoemarks)
-    fake_shoemark_scores = discriminator(augmented_generated_images)
+    fake_shoemark_scores = discriminator(generated_shoemarks)
     gan_loss = torch.nn.functional.mse_loss(
         fake_shoemark_scores, torch.ones_like(fake_shoemark_scores)
     )

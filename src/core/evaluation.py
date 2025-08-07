@@ -17,7 +17,6 @@ from tqdm import tqdm, trange
 from src.core.training import ImageBuffer
 from src.data.config import Config
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
-from src.model.loss import ADAp
 
 # * Checkpoints
 
@@ -32,19 +31,16 @@ def validate_single(
     generator: Generator,
 ):
     """Calculate FID and KID scores for individual images and then mean."""
-    shoeprints = shoeprint.expand(config["evaluation"]["inference_batch_size"], -1, -1, -1).to(
-        device
-    )
+    shoeprints = shoeprint.expand(config["inference"]["batch_size"], -1, -1, -1).to(device)
 
     shoemark_batches = []
     for _ in range(
         math.ceil(
-            config["evaluation"]["cond_is_n_evaluation_images"]
-            / config["evaluation"]["inference_batch_size"]
+            config["evaluation"]["cond_is_n_evaluation_images"] / config["inference"]["batch_size"]
         )
     ):
         w = mapping_network.get_single_w(
-            batch_size=config["evaluation"]["inference_batch_size"],
+            batch_size=config["inference"]["batch_size"],
             n_gen_blocks=generator.n_style_blocks,
             device=device,
             mix_styles=False,
@@ -87,16 +83,13 @@ def val_checkpoint(
 
     i = 0
     for _ in trange(
-        math.ceil(
-            config["evaluation"]["n_evaluation_images"]
-            / config["evaluation"]["inference_batch_size"]
-        ),
+        math.ceil(config["evaluation"]["n_evaluation_images"] / config["inference"]["batch_size"]),
         desc="Generating shoemarks",
         leave=False,
     ):
         shoeprints = next(shoeprint_val_iter).to(device)
         w = mapping_network.get_single_w(
-            batch_size=config["evaluation"]["inference_batch_size"],
+            batch_size=config["inference"]["batch_size"],
             n_gen_blocks=generator.n_style_blocks,
             device=device,
             mix_styles=False,
@@ -278,7 +271,6 @@ def model_checkpoint(
     discriminator_optimiser: torch.optim.Optimizer,
     mapping_network_optimiser: torch.optim.Optimizer,
     style_extractor_optimiser: torch.optim.Optimizer,
-    ada_p: ADAp,
     image_buffer: ImageBuffer,
 ):
     """Save all network training state to file."""
@@ -296,7 +288,6 @@ def model_checkpoint(
             "mapping_network_optim_state_dict": mapping_network_optimiser.state_dict(),
             "style_extractor_state_dict": style_extractor.state_dict(),
             "style_extractor_optim_state_dict": style_extractor_optimiser.state_dict(),
-            "ada_p": ada_p(),
             "image_buffer_images": image_buffer.images,
             "image_buffer_size": image_buffer.buffer_size,
         },

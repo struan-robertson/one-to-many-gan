@@ -9,21 +9,13 @@ import sys
 import numpy as np
 import torch
 import torch.utils.data
-from ada import AdaptiveDiscriminatorAugmentation
-from torchvision import transforms
 from tqdm import tqdm, trange
 
-from src.core.evaluation import (
-    Logger,
-    image_checkpoint,
-    model_checkpoint,
-    val_checkpoint,
-)
+from src.core.evaluation import Logger, image_checkpoint, model_checkpoint, val_checkpoint
 from src.core.training import ImageBuffer, discriminator_step, generator_step
 from src.data.config import load_config
-from src.data.datasets import ShoeDataset
+from src.data.datasets import ShoeDataset, dataset_transform
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
-from src.model.loss import ADAp
 
 
 def main(config_path: str):
@@ -116,22 +108,20 @@ def main(config_path: str):
 
     # ** Data
 
-    transform = transforms.Compose(
-        [
-            transforms.Resize(config["data"]["image_size"]),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5,), (0.5,)),
-        ]
+    transform = dataset_transform(
+        config["data"]["image_size"], config["data"]["norm_mean"], config["data"]["norm_std"]
     )
 
     shoemark_data = ShoeDataset(
-        config["data"]["shoemark_data_dir"], mode="train", transform=transform
+        config["data"]["shoemark_data_dir"],
+        mode="train",
+        transform=transform,
     )
     shoemark_dataloader = torch.utils.data.DataLoader(
         shoemark_data,
         batch_size=config["training"]["batch_size"],
         shuffle=True,
-        num_workers=8,
+        num_workers=0,  # Data is held in memory
         drop_last=True,
         pin_memory=True,
         worker_init_fn=seed_worker,
@@ -139,13 +129,15 @@ def main(config_path: str):
     )
 
     shoeprint_data = ShoeDataset(
-        config["data"]["shoeprint_data_dir"], mode="train", transform=transform
+        config["data"]["shoeprint_data_dir"],
+        mode="train",
+        transform=transform,
     )
     shoeprint_dataloader = torch.utils.data.DataLoader(
         shoeprint_data,
         batch_size=config["training"]["batch_size"],
         shuffle=True,
-        num_workers=8,
+        num_workers=0,
         drop_last=True,
         pin_memory=True,
         worker_init_fn=seed_worker,
@@ -154,9 +146,9 @@ def main(config_path: str):
 
     shoeprint_val_dataloader = torch.utils.data.DataLoader(
         shoeprint_data,
-        batch_size=config["evaluation"]["inference_batch_size"],
+        batch_size=config["inference"]["batch_size"],
         shuffle=False,
-        num_workers=8,
+        num_workers=0,
         drop_last=True,
         pin_memory=True,
         worker_init_fn=seed_worker,
@@ -169,30 +161,6 @@ def main(config_path: str):
 
     image_buffer = ImageBuffer(config["training"]["image_buffer_size"])
 
-    # ** Augmentation
-
-    adaptive_discriminator_augmentation = AdaptiveDiscriminatorAugmentation(
-        xflip=1,
-        rotate90=1,
-        xint=1,
-        scale=1,
-        rotate=1,
-        aniso=1,
-        xfrac=1,
-        brightness=1,
-        contrast=1,
-        lumaflip=1,
-        hue=1,
-        saturation=1,
-    ).to(device)
-
-    ada_p = ADAp(
-        ada_e=config["ada"]["ada_overfitting_measurement_n_images"],
-        ada_adjustment_size=config["ada"]["ada_adjustment_size"],
-        batch_size=config["training"]["batch_size"],
-        discriminator_overfitting_target=config["ada"]["discriminator_real_acc_target"],
-    )
-
     # ** Logging
 
     logger = Logger(config["training"]["training_steps"])
@@ -202,8 +170,6 @@ def main(config_path: str):
     """Training loop."""
     for step in trange(config["training"]["training_steps"], dynamic_ncols=True):
         # set adaptive discriminator augmentation p
-        adaptive_discriminator_augmentation.set_p(ada_p())
-        logger.log_ada_ps.append(ada_p())
 
         # Train discriminator
         disc_loss, (real_accuracy, fake_accuracy) = discriminator_step(
@@ -216,8 +182,6 @@ def main(config_path: str):
             shoeprint_iter,
             shoemark_iter,
             image_buffer,
-            adaptive_discriminator_augmentation,
-            ada_p,
         )
         logger.log_total_disc_losses.append(disc_loss)
         logger.log_disc_real_accs.append(real_accuracy)
@@ -239,7 +203,6 @@ def main(config_path: str):
             style_extractor_optimiser,
             shoeprint_iter,
             shoemark_iter,
-            adaptive_discriminator_augmentation,
         )
         logger.log_total_gen_losses.append(total_gen_loss)
         logger.log_gan_losses.append(gan_loss)
@@ -306,7 +269,6 @@ def main(config_path: str):
                     discriminator_optimiser,
                     mapping_network_optimiser,
                     style_extractor_optimiser,
-                    ada_p,
                     image_buffer,
                 )
 

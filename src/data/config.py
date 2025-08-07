@@ -22,6 +22,10 @@ class _Inference(TypedDict):
     batch_size: int
 
 
+class _Generation(TypedDict):
+    flooring_dir: Path
+
+
 class _Optimisation(TypedDict):
     style_cycle_loss_lambda: float
     identity_loss_lambda: float
@@ -32,12 +36,6 @@ class _Optimisation(TypedDict):
     learning_rate: float
     mapping_network_learning_rate: float
     adam_betas: tuple[float, float]
-
-
-class _Ada(TypedDict):
-    discriminator_real_acc_target: float
-    ada_overfitting_measurement_n_images: int
-    ada_adjustment_size: float
 
 
 class _Evaluation(TypedDict):
@@ -60,6 +58,8 @@ class _Data(TypedDict):
     image_channels: int
     shoeprint_data_dir: Path
     shoemark_data_dir: Path
+    norm_mean: float
+    norm_std: float
 
 
 class Config(TypedDict):
@@ -67,8 +67,8 @@ class Config(TypedDict):
 
     training: _Training
     inference: _Inference
+    generation: _Generation
     optimisation: _Optimisation
-    ada: _Ada
     evaluation: _Evaluation
     architecture: _Architecture
     data: _Data
@@ -85,6 +85,7 @@ def load_config(path: Path | str) -> Config:
     config["training"]["checkpoint_directory"] = Path(config["training"]["checkpoint_directory"])
     config["data"]["shoeprint_data_dir"] = Path(config["data"]["shoeprint_data_dir"])
     config["data"]["shoemark_data_dir"] = Path(config["data"]["shoemark_data_dir"])
+    config["generation"]["flooring_dir"] = Path(config["generation"]["flooring_dir"])
     config["inference"]["checkpoint"] = Path(config["inference"]["checkpoint"])
 
     return config

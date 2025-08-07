@@ -15,6 +15,9 @@ training_run = "run_name"
 checkpoint = "/home/struan/one-to-many-gan/checkpoints/bkp/no_ada/models/150000.tar"
 batch_size = 12
 
+[generation]
+flooring_dir = "/flooring"
+
 [optimisation]
 style_cycle_loss_lambda = 5.0
 identity_loss_lambda = 5.0
@@ -26,17 +29,11 @@ learning_rate = 2e-3
 mapping_network_learning_rate = 2e-5 # 100x less
 adam_betas = [0.5, 0.99]
 
-[ada]
-discriminator_real_acc_target = 0.6 # Ideal accuracy of discriminator on real data
-ada_overfitting_measurement_n_images = 256 # Number of images over which to measure D overfitting
-ada_adjustment_size = 5.12e-4 # ADA adjustment amount per image
-
 [evaluation]
 log_interval = 500
 checkpoint_interval = 5_000
 cond_is_n_evaluation_images = 100 # Number of images generated for conditional inception score
 n_evaluation_images = 10_000
-
 
 [architecture]
 w_dim = 6 # Dimensionality of the style vector
@@ -48,6 +45,8 @@ mapping_network_layers = 2
 [data]
 image_size = [512, 256]
 image_channels = 1
-shoemark_data_dir = "/home/struan/Datasets/Generated Shoemarks"
-shoeprint_data_dir = "/home/struan/Datasets/GAN Partitioned Half/Shoeprints"
+shoemark_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half new/Shoemarks"
+shoeprint_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half new/Shoeprints"
+norm_mean = 0.9050
+norm_std = 0.2318
 

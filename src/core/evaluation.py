@@ -12,11 +12,10 @@ import torchvision
 from cleanfid import fid
 from matplotlib import pyplot as plt
 from pytorch_image_generation_metrics import get_inception_score
-from tqdm import tqdm, trange
-
 from src.core.training import ImageBuffer
 from src.data.config import Config
 from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from tqdm import tqdm, trange
 
 # * Checkpoints
 
@@ -31,12 +30,15 @@ def validate_single(
     generator: Generator,
 ):
     """Calculate FID and KID scores for individual images and then mean."""
-    shoeprints = shoeprint.expand(config["inference"]["batch_size"], -1, -1, -1).to(device)
+    shoeprints = shoeprint.expand(config["inference"]["batch_size"], -1, -1, -1).to(
+        device
+    )
 
     shoemark_batches = []
     for _ in range(
         math.ceil(
-            config["evaluation"]["cond_is_n_evaluation_images"] / config["inference"]["batch_size"]
+            config["evaluation"]["cond_is_n_evaluation_images"]
+            / config["inference"]["batch_size"]
         )
     ):
         w = mapping_network.get_single_w(
@@ -77,13 +79,18 @@ def val_checkpoint(
 ):
     """Calculate FID and KID scores and save to checkpoint."""
     val_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "val"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "val"
     )
     val_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     i = 0
     for _ in trange(
-        math.ceil(config["evaluation"]["n_evaluation_images"] / config["inference"]["batch_size"]),
+        math.ceil(
+            config["evaluation"]["n_evaluation_images"]
+            / config["inference"]["batch_size"]
+        ),
         desc="Generating shoemarks",
         leave=False,
     ):
@@ -114,7 +121,9 @@ def val_checkpoint(
     tqdm.write(log)
 
     log_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "log"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "log"
     )
     with log_checkpoint_dir.open("a") as file:
         file.write(log + "\n")
@@ -179,7 +188,9 @@ def image_checkpoint(
     )
 
     image_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "images"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "images"
     )
     image_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -209,7 +220,9 @@ def image_checkpoint(
     translation_grid_images = []
     for column in range(8):
         column_images = [real_shoeprint_images[column]]
-        column_images += [*generator.decode(shoeprint_latents[column].expand(8, -1, -1, -1), w)]
+        column_images += [
+            *generator.decode(shoeprint_latents[column].expand(8, -1, -1, -1), w)
+        ]
         translation_grid_images.append(column_images)
 
     save_grid(
@@ -275,7 +288,9 @@ def model_checkpoint(
 ):
     """Save all network training state to file."""
     models_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "models"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "models"
     )
     models_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     torch.save(
@@ -317,7 +332,6 @@ class Logger:
         self.log_kl_losses = []
         self.log_path_losses = []
         self.log_style_losses = []
-        self.log_ada_ps = []
 
     def print(self, step: int):
         string = (
@@ -332,7 +346,6 @@ class Logger:
             f"KL loss {np.mean(self.log_kl_losses):.6g}, "
             f"Path loss {np.mean(self.log_path_losses):.6g}, "
             f"Style loss: {np.mean(self.log_style_losses):.6g}, "
-            f"ADA: {np.mean(self.log_ada_ps):.6g}, "
         )
 
         self.initialise_trackers()

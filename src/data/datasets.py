@@ -40,8 +40,7 @@ def no_norm_transform(
 
 
 def calculate_stats(
-    shoeprint_loader: torch.utils.data.DataLoader,
-    shoemark_loader: torch.utils.data.DataLoader,
+    loader: torch.utils.data.DataLoader,
     num_channels: int = 1,
 ):
     """Calculate per-channel mean and std using explicit sum of squares."""
@@ -49,20 +48,10 @@ def calculate_stats(
     sum_squares = torch.zeros(num_channels)
     total_pixels = 0
 
-    for shoeprint in tqdm(shoeprint_loader):
+    for image in tqdm(loader):
         # Mean over batch, height and width, but not over channels
 
-        flattened = shoeprint.flatten(start_dim=2)  # [B, C, H*W]
-
-        # Accumulate statistics
-        sum_pixels += flattened.sum(dim=(0, 2))
-        sum_squares += (flattened**2).sum(dim=(0, 2))
-        total_pixels += flattened.shape[0] * flattened.shape[2]
-
-    for shoemark in tqdm(shoemark_loader):
-        # Mean over batch, height and width, but not over channels
-
-        flattened = shoemark.flatten(start_dim=2)  # [B, C, H*W]
+        flattened = image.flatten(start_dim=2)  # [B, C, H*W]
 
         # Accumulate statistics
         sum_pixels += flattened.sum(dim=(0, 2))
@@ -152,6 +141,8 @@ class LabeledShoeDataset(Dataset):
         image = self.images[idx]
         filename = self.image_files[idx].stem  # Extract filename
         return (self.hflipper(image), filename)  # Return two elements
+
+
 class Edges2ShoesDataset(Dataset):
     """Load shoe images into RAM."""
 

@@ -108,14 +108,10 @@ def main(config_path: str):
 
     # ** Data
 
-    transform = dataset_transform(
-        config["data"]["image_size"], config["data"]["norm_mean"], config["data"]["norm_std"]
-    )
-
     shoemark_data = ShoeDataset(
         config["data"]["shoemark_data_dir"],
         mode="train",
-        transform=transform,
+        transform=dataset_transform(config["data"]["image_size"], *config["data"]["shoemark_norm"]),
     )
     shoemark_dataloader = torch.utils.data.DataLoader(
         shoemark_data,
@@ -131,7 +127,9 @@ def main(config_path: str):
     shoeprint_data = ShoeDataset(
         config["data"]["shoeprint_data_dir"],
         mode="train",
-        transform=transform,
+        transform=dataset_transform(
+            config["data"]["image_size"], *config["data"]["shoeprint_norm"]
+        ),
     )
     shoeprint_dataloader = torch.utils.data.DataLoader(
         shoeprint_data,

@@ -58,8 +58,8 @@ class _Data(TypedDict):
     image_channels: int
     shoeprint_data_dir: Path
     shoemark_data_dir: Path
-    norm_mean: float
-    norm_std: float
+    shoemark_norm: tuple[float, float]
+    shoeprint_norm: tuple[float, float]
 
 
 class Config(TypedDict):

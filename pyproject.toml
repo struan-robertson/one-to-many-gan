@@ -12,8 +12,8 @@ dependencies = [
     "pillow>=11.1.0",
     "pytorch-ada",
     "scipy>=1.15.2",
-    "torch>=2.7.0",
-    "torchvision>=0.22.0",
+    "torch>=2.8.0",
+    "torchvision>=0.23.0",
     "pytorch-triton-rocm",
     "tqdm>=4.67.1",
     "pytorch-image-generation-metrics>=0.6.1",
@@ -36,7 +36,7 @@ pytorch-triton-rocm = [
 
 [[tool.uv.index]]
 name = "pytorch-rocm"
-url = "https://download.pytorch.org/whl/rocm6.3"
+url = "https://download.pytorch.org/whl/rocm6.4"
 explicit = true
 
 [dependency-groups]

@@ -1,5 +1,7 @@
 """Load datasets using torch.utils.data.Dataset."""
 
+import random
+from collections import defaultdict
 from pathlib import Path
 from typing import Literal
 
@@ -106,41 +108,47 @@ class ShoeDataset(Dataset):
 
 
 class LabeledShoeDataset(Dataset):
-    """Load shoe images into RAM. Returns (image, filename) pairs."""
+    """Load shoe images into RAM. Returns (image, class_id) pairs."""
 
     def __init__(
         self,
         path: Path | str,
         *,
-        mode: _dataset_mode,
+        mode: _dataset_mode | None,
         transform,
         flip_prob: float = 0.5,
     ):
-        path = Path(path).expanduser() / mode
+        path = Path(path)
 
-        jpg_files = list(path.rglob("*.jpg"))
-        png_files = list(path.rglob("*.png"))
+        if mode:
+            path = path.expanduser() / mode
 
-        self.image_files = jpg_files + png_files  # Store filenumerate
+        image_files = list(path.rglob("*.jpg")) + list(path.rglob("*.png"))
 
-        if len(self.image_files) == 0:
+        if len(image_files) == 0:
             raise FileNotFoundError
 
-        images = []
-        for image_file in self.image_files:
-            image = Image.open(image_file)
-            images.append(transform(image))
+        self.image_classes = defaultdict(list)
 
-        self.images = images
+        for image_file in image_files:
+            image_class = int(image_file.stem.split("_")[0])
+            image = Image.open(image_file)
+            self.image_classes[image_class].append(image)
+
+        self.image_classes_keys = list(self.image_classes.keys())
+        self.transform = transform
         self.hflipper = transforms.RandomHorizontalFlip(flip_prob)
 
     def __len__(self):
-        return len(self.images)
+        return len(self.image_classes.keys())
 
     def __getitem__(self, idx: int):
-        image = self.images[idx]
-        filename = self.image_files[idx].stem  # Extract filename
-        return (self.hflipper(image), filename)  # Return two elements
+        shoe_class = self.image_classes_keys[idx]
+        image = random.choice(self.image_classes[shoe_class])
+
+        image = self.transform(image)
+
+        return (self.hflipper(image), shoe_class)  # Return two elements
 
 
 class Edges2ShoesDataset(Dataset):

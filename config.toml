@@ -12,11 +12,11 @@ checkpoint_directory = "checkpoints"
 training_run = "run_name"
 
 [inference]
-checkpoint = "/home/struan/one-to-many-gan/checkpoints/bkp/no_ada/models/150000.tar"
-batch_size = 12
+checkpoint = "checkpoints/final_3/140000.tar"
+batch_size = 16
 
 [generation]
-flooring_dir = "/flooring"
+flooring_dir = "flooring/"
 
 [optimisation]
 style_cycle_loss_lambda = 5.0
@@ -46,7 +46,7 @@ mapping_network_layers = 2
 image_size = [512, 256]
 image_channels = 1
 shoemark_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half new/Shoemarks"
-shoeprint_data_dir = "/home/struan/Vault/University/Doctorate/Data/GAN Partitioned Half new/Shoeprints"
-shoemark_norm = [0.9638, 0.0963]
-shoeprint_norm = [0.8769, 0.2694]
+shoeprint_data_dir = "/home/struan/Vault/University/Doctorate/Data/Siamese/Shoeprints (Generation)"
+shoemark_norm = [0.5, 0.5] # [0.9638, 0.0963]
+shoeprint_norm = [0.5, 0.5] # [0.8769, 0.2694]
 

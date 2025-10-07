@@ -8,3 +8,6 @@
 /example_shoemarks/
 /flooring/
 /*.lprof
+/Examples/
+*.png
+*.jpg

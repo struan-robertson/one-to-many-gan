@@ -1,9 +1,10 @@
 """Generate synthetic data."""
 
 import torch
+import torchvision.transforms.v2.functional as F
 
-from src.data.config import Config
-from src.model.builder import Generator, MappingNetwork
+from one_to_many_gan.data.config import Config
+from one_to_many_gan.model.builder import Generator, MappingNetwork
 
 
 class GeneratorHandler:
@@ -17,7 +18,7 @@ class GeneratorHandler:
         generator = (
             Generator(
                 input_nc=config["data"]["image_channels"],
-                w_dim=config["architecture"]["w_dim"],
+                s_dim=config["architecture"]["s_dim"],
                 image_size=config["data"]["image_size"],
                 min_latent_resolution=config["architecture"]["min_latent_resolution"],
                 n_resnet_blocks=config["architecture"]["n_resnet_blocks"],
@@ -28,9 +29,10 @@ class GeneratorHandler:
 
         mapping_network = (
             MappingNetwork(
-                features=config["architecture"]["w_dim"],
+                features=config["architecture"]["s_dim"],
                 n_layers=config["architecture"]["mapping_network_layers"],
                 style_mixing_prob=config["training"]["style_mixing_prob"],
+                n_gen_blocks=generator.n_style_blocks,
             )
             .to(device)
             .eval()
@@ -42,18 +44,27 @@ class GeneratorHandler:
         )
         generator.load_state_dict(checkpoint["generator_state_dict"])
         mapping_network.load_state_dict(checkpoint["mapping_network_state_dict"])
+
+        for param in generator.parameters():
+            param.requires_grad = False
+
+        for param in mapping_network.parameters():
+            param.requires_grad = False
+
         self.generator = generator
         self.mapping_network = mapping_network
         self.device = device
+        self.shoeprint_norm = config["data"]["shoeprint_norm"]
 
-    def generate(self, shoeprints: torch.Tensor, difficulty: float):
-        with torch.no_grad():
-            s = self.mapping_network.get_single_w(
-                batch_size=shoeprints.shape[0],
-                n_gen_blocks=self.generator.n_style_blocks,
-                device=self.device,
-                mix_styles=False,
-                domain_variable=difficulty,
-            )
+    def generate(self, shoeprints: torch.Tensor, difficulty: float, *, normalised=False):
+        s = self.mapping_network.get_single_s(
+            batch_size=shoeprints.shape[0],
+            device=self.device,
+            mix_styles=False,
+            domain_variable=difficulty,
+        )
 
-            return self.generator(shoeprints, s)
+        if not normalised:
+            shoeprints = F.normalize(shoeprints, *self.shoeprint_norm)  # pyright: ignore [reportArgumentType]
+
+        return self.generator(shoeprints, s)

@@ -1,21 +1,18 @@
 """Classes and methods used for training models."""
 
-import random
-from collections.abc import Iterator
+from typing import cast
 
 import torch
 
-from src.data.config import Config
-from src.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
-from src.model.loss import kl_loss_func, path_loss_func, style_cycle_loss_func
+from one_to_many_gan.data.config import Config
+from one_to_many_gan.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from one_to_many_gan.model.loss import kl_loss_func, path_loss_func, style_cycle_loss_func
 
 # Clean up return value code
 _detacher = lambda x: x.detach().cpu().item()
 
 
-# * Discriminator
-
-# ** Image Buffer
+# * Image Buffer
 
 
 # Adapted from CycleGAN
@@ -49,21 +46,19 @@ class ImageBuffer:
                 self.num_imgs += 1
                 self.images.append(image_unsqueezed)
                 return_images.append(image_unsqueezed)
+            elif torch.rand(()).gt(0.5):
+                random_id = cast(int, torch.randint(self.buffer_size, ()).item())
+                # Clone tensors as they may be used many times
+                cloned_image = self.images[random_id].clone()
+                self.images[random_id] = image_unsqueezed
+                return_images.append(cloned_image)
             else:
-                p = random.uniform(0, 1)
-                if p > 0.5:
-                    random_id = random.randint(0, self.buffer_size - 1)  # randint is inclusive
-                    # Clone tensors as they may be used many times
-                    cloned_image = self.images[random_id].clone()
-                    self.images[random_id] = image_unsqueezed
-                    return_images.append(cloned_image)
-                else:
-                    return_images.append(image_unsqueezed)
+                return_images.append(image_unsqueezed)
 
         return torch.cat(return_images, 0)
 
 
-# ** D Training Step
+# * Discriminator
 
 
 def discriminator_step(
@@ -73,8 +68,8 @@ def discriminator_step(
     generator: Generator,
     mapping_network: MappingNetwork,
     discriminator_optimiser: torch.optim.Optimizer,
-    shoeprint_iter: Iterator[torch.Tensor],
-    shoemark_iter: Iterator[torch.Tensor],
+    shoeprints: torch.Tensor,
+    real_shoemarks: torch.Tensor,
     image_buffer: ImageBuffer,
 ):
     """Take a step with the discriminator and return loss."""
@@ -84,18 +79,13 @@ def discriminator_step(
     discriminator_optimiser.zero_grad()
 
     # Generate fake shoemarks
-    shoeprint_images = next(shoeprint_iter).to(device)
-    w = mapping_network.get_single_w(
+    s = mapping_network.get_single_s(
         batch_size=config["training"]["batch_size"],
-        n_gen_blocks=generator.n_style_blocks,
         device=device,
         domain_variable=1,
     )
-    generated_shoemarks = generator(shoeprint_images, w)
+    generated_shoemarks = generator(shoeprints, s)
     buffered_shoemarks = image_buffer(generated_shoemarks)
-
-    # Get real shoemarks
-    real_shoemarks = next(shoemark_iter).to(device)
 
     # Calculate discriminator scores
     fake_scores = discriminator(buffered_shoemarks)
@@ -121,8 +111,6 @@ def discriminator_step(
 
 # * Generator
 
-# ** Generator Train Step
-
 
 def generator_step(
     config: Config,
@@ -134,20 +122,17 @@ def generator_step(
     generator_optimiser: torch.optim.Optimizer,
     mapping_network_optimiser: torch.optim.Optimizer,
     style_extractor_optimiser: torch.optim.Optimizer,
-    shoeprint_iter: Iterator[torch.Tensor],
-    shoemark_iter: Iterator[torch.Tensor],
+    real_shoeprints: torch.Tensor,
+    real_shoemarks: torch.Tensor,
 ):
     """Take a step with the generator and return loss."""
     generator_optimiser.zero_grad()
     mapping_network_optimiser.zero_grad()
     style_extractor_optimiser.zero_grad()
 
-    real_shoeprint_images = next(shoeprint_iter).to(device)
-    real_shoemark_images = next(shoemark_iter).to(device)
-
     # KL loss
     # Combine for single forward pass
-    combined_images = torch.cat([real_shoeprint_images, real_shoemark_images], dim=0)
+    combined_images = torch.cat([real_shoeprints, real_shoemarks], dim=0)
     combined_latents = generator.encode(combined_images)
     kl_loss = kl_loss_func(combined_latents)
 
@@ -158,33 +143,29 @@ def generator_step(
     shoeprint_latent, shoemark_latent = combined_latents.chunk(2, dim=0)
 
     # Reconstruction loss
-    reconstruct_w = mapping_network.get_single_w(
+    reconstruct_s = mapping_network.get_single_s(
         batch_size=config["training"]["batch_size"],
-        n_gen_blocks=generator.n_style_blocks,
         device=device,
         domain_variable=0,
     )
-    reconstructed_shoeprints = generator.decode(shoeprint_latent, reconstruct_w)
-    reconstruction_loss = torch.nn.functional.l1_loss(
-        reconstructed_shoeprints, real_shoeprint_images
-    )
+    reconstructed_shoeprints = generator.decode(shoeprint_latent, reconstruct_s)
+    reconstruction_loss = torch.nn.functional.l1_loss(reconstructed_shoeprints, real_shoeprints)
 
     # Identity loss
-    real_shoemark_w = style_extractor(real_shoemark_images)
+    real_shoemark_s = style_extractor(real_shoemarks)
     reconstructed_shoemarks = generator.decode(
         shoemark_latent,
-        real_shoemark_w.expand(generator.n_style_blocks, *real_shoemark_w.shape),
+        real_shoemark_s.expand(generator.n_style_blocks, *real_shoemark_s.shape),
     )
-    identity_loss = torch.nn.functional.l1_loss(reconstructed_shoemarks, real_shoemark_images)
+    identity_loss = torch.nn.functional.l1_loss(reconstructed_shoemarks, real_shoemarks)
 
     # GAN loss
-    translation_w = mapping_network.get_single_w(
+    translation_s = mapping_network.get_single_s(
         batch_size=config["training"]["batch_size"],
-        n_gen_blocks=generator.n_style_blocks,
         device=device,
         domain_variable=1,
     )
-    generated_shoemarks = generator.decode(shoeprint_latent, translation_w)
+    generated_shoemarks = generator.decode(shoeprint_latent, translation_s)
     fake_shoemark_scores = discriminator(generated_shoemarks)
     gan_loss = torch.nn.functional.mse_loss(
         fake_shoemark_scores, torch.ones_like(fake_shoemark_scores)
@@ -192,9 +173,9 @@ def generator_step(
 
     # Style cycle loss
     style_loss_shoemarks = generated_shoemarks
-    style_loss_w = translation_w[-1]
-    reconstructed_w = style_extractor(style_loss_shoemarks)
-    style_loss = style_cycle_loss_func(style_loss_w, reconstructed_w)
+    style_loss_s = translation_s[-1]
+    reconstructed_s = style_extractor(style_loss_shoemarks)
+    style_loss = style_cycle_loss_func(style_loss_s, reconstructed_s)
 
     # Path loss
     # Calculate random \theta for each image from uniform distribution between 0 and 1
@@ -210,14 +191,13 @@ def generator_step(
     )
     d1 = (theta + cent_fin_diff_h / 2).clamp(0, 1)
     d2 = (theta - cent_fin_diff_h / 2).clamp(0, 1)
-    w1, w2 = mapping_network.get_two_w(
+    s1, s2 = mapping_network.get_two_s(
         batch_size=config["training"]["batch_size"],
-        n_gen_blocks=generator.n_style_blocks,
         device=device,
         domain_variables=(d1, d2),
     )
-    features1 = generator.extract(shoeprint_latent, w1)
-    features2 = generator.extract(shoeprint_latent, w2)
+    features1 = generator.extract(shoeprint_latent, s1)
+    features2 = generator.extract(shoeprint_latent, s2)
     path_loss = path_loss_func(features1, features2, cent_fin_diff_h)
 
     total_gen_loss = (

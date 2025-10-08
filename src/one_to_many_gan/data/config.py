@@ -8,9 +8,10 @@ from typing import TypedDict
 class _Training(TypedDict):
     batch_size: int
     random_seed: int
-    training_steps: int
+    batch_agnostic_steps: int
     image_buffer_size: int
     style_mixing_prob: float
+    random_image_flip: bool
     deterministic_cuda_kernels: bool
     gpu_number: int
     checkpoint_directory: Path
@@ -20,10 +21,6 @@ class _Training(TypedDict):
 class _Inference(TypedDict):
     checkpoint: Path
     batch_size: int
-
-
-class _Generation(TypedDict):
-    flooring_dir: Path
 
 
 class _Optimisation(TypedDict):
@@ -43,10 +40,11 @@ class _Evaluation(TypedDict):
     checkpoint_interval: int
     n_evaluation_images: int
     cond_is_n_evaluation_images: int
+    use_training_data: bool
 
 
 class _Architecture(TypedDict):
-    w_dim: int
+    s_dim: int
     add_latent_noise: bool
     min_latent_resolution: int
     n_resnet_blocks: int
@@ -67,7 +65,6 @@ class Config(TypedDict):
 
     training: _Training
     inference: _Inference
-    generation: _Generation
     optimisation: _Optimisation
     evaluation: _Evaluation
     architecture: _Architecture
@@ -85,7 +82,6 @@ def load_config(path: Path | str) -> Config:
     config["training"]["checkpoint_directory"] = Path(config["training"]["checkpoint_directory"])
     config["data"]["shoeprint_data_dir"] = Path(config["data"]["shoeprint_data_dir"])
     config["data"]["shoemark_data_dir"] = Path(config["data"]["shoemark_data_dir"])
-    config["generation"]["flooring_dir"] = Path(config["generation"]["flooring_dir"])
     config["inference"]["checkpoint"] = Path(config["inference"]["checkpoint"])
 
     return config

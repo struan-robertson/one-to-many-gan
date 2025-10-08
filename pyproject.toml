@@ -1,8 +1,7 @@
 [project]
 name = "one-to-many-gan"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "One-to-Many GAN"
 requires-python = ">=3.13"
 dependencies = [
     "clean-fid",
@@ -13,13 +12,17 @@ dependencies = [
     "pytorch-ada",
     "scipy>=1.15.2",
     "torch>=2.8.0",
-    "torchvision>=0.23.0",
+    "torchvision>=0.2.0",
     "pytorch-triton-rocm",
     "tqdm>=4.67.1",
     "pytorch-image-generation-metrics>=0.6.1",
     "opencv-python>=4.11.0.86",
     "line-profiler>=4.2.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.uv.sources]
 torch = [

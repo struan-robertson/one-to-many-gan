@@ -114,7 +114,7 @@ class Conv2dWeightModulate(nn.Module):
         in_features: int,
         out_features: int,
         kernel_size: int,
-        w_dim: int,
+        s_dim: int,
         padding: int,
         *,
         use_bias: bool = False,
@@ -132,16 +132,16 @@ class Conv2dWeightModulate(nn.Module):
         self.use_bias = use_bias
 
         self.to_style = EqualisedLinear(
-            w_dim, in_features, bias=1
+            s_dim, in_features, bias=1
         )  # Account for style vectors with zero values
 
         if use_bias:
             self.bias = nn.Parameter(torch.zeros(out_features))
 
-    def forward(self, x: torch.Tensor, w: torch.Tensor):
+    def forward(self, x: torch.Tensor, s: torch.Tensor):
         b, _, height, width = x.shape
 
-        s = self.to_style(w)
+        s = self.to_style(s)
 
         s = s[:, None, :, None, None]
 

@@ -9,28 +9,27 @@ from torch.nn import functional as F
 
 
 def style_cycle_loss_func(
-    original_w: torch.Tensor,
-    reconstructed_w: torch.Tensor,
+    original_s: torch.Tensor,
+    reconstructed_s: torch.Tensor,
     *,
     normalise=True,
     cos_l2_ratio: float = 0.2,
 ):
-    """Calculate cycle consistency loss for style vector w."""
+    """Calculate cycle consistency loss for style vector s."""
     if normalise:
-        norm_original_w = F.normalize(original_w, dim=-1)
-        norm_reconstructed_w = F.normalize(reconstructed_w, dim=-1)
-        cos_loss = 1 - F.cosine_similarity(norm_original_w, norm_reconstructed_w, dim=-1).mean()
+        norm_original_s = F.normalize(original_s, dim=-1)
+        norm_reconstructed_s = F.normalize(reconstructed_s, dim=-1)
+        cos_loss = 1 - F.cosine_similarity(norm_original_s, norm_reconstructed_s, dim=-1).mean()
     else:
-        cos_loss = 1 - F.cosine_similarity(original_w, reconstructed_w, dim=-1).mean()
+        cos_loss = 1 - F.cosine_similarity(original_s, reconstructed_s, dim=-1).mean()
 
-    l2_loss = F.mse_loss(original_w, reconstructed_w)
+    l2_loss = F.mse_loss(original_s, reconstructed_s)
     return cos_loss + cos_l2_ratio * l2_loss
 
 
 # ** KL Loss
 
 
-# Would be more appropriate to call domain alignment loss
 def kl_loss_func(
     combined_latents: torch.Tensor,
 ):

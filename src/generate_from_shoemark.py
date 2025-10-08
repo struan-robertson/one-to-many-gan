@@ -9,8 +9,8 @@ from seamless_clone import clone
 from torchvision import transforms
 from tqdm import tqdm
 
-from src.data.config import load_config
-from src.data.datasets import LabeledShoeDataset
+from one_to_many_gan.data.config import load_config
+from one_to_many_gan.data.datasets import ShoeDataset
 
 config = load_config("config.toml")
 
@@ -24,7 +24,9 @@ output_dir.mkdir(exist_ok=True)
 flooring_images = list(config["generation"]["flooring_dir"].glob("*"))
 flooring_images = [str(f) for f in flooring_images if f.is_file()]
 
-dataset = LabeledShoeDataset(input_dir, mode=None, transform=transforms.ToTensor(), flip_prob=0)
+dataset = ShoeDataset(
+    input_dir, mode=None, transform=transforms.ToTensor(), random_flip=False, labelled=True
+)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, num_workers=0, drop_last=False)
 
 for number in tqdm(range(40)):

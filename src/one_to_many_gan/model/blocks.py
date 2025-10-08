@@ -39,7 +39,7 @@ class ModulatedResnetBlock(nn.Module):
     def __init__(
         self,
         dim: int,
-        w_dim: int,
+        s_dim: int,
         *,
         use_bias: bool = False,
     ):
@@ -48,22 +48,22 @@ class ModulatedResnetBlock(nn.Module):
         conv_block = [
             nn.ReflectionPad2d(1),
             Conv2dWeightModulate(
-                dim, dim, w_dim=w_dim, kernel_size=3, padding=0, use_bias=use_bias
+                dim, dim, s_dim=s_dim, kernel_size=3, padding=0, use_bias=use_bias
             ),
             nn.ReLU(inplace=True),
             nn.ReflectionPad2d(1),
             Conv2dWeightModulate(
-                dim, dim, w_dim=w_dim, kernel_size=3, padding=0, use_bias=use_bias
+                dim, dim, s_dim=s_dim, kernel_size=3, padding=0, use_bias=use_bias
             ),
         ]
 
         self.conv_block = nn.ModuleList(conv_block)
 
-    def forward(self, x: torch.Tensor, w: torch.Tensor):
+    def forward(self, x: torch.Tensor, s: torch.Tensor):
         residual = x
 
         for block in self.conv_block:
-            x = block(x, w) if isinstance(block, Conv2dWeightModulate) else block(x)
+            x = block(x, s) if isinstance(block, Conv2dWeightModulate) else block(x)
 
         return residual + x
 

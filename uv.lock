@@ -534,8 +534,8 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.15.2" },
     { name = "torch", marker = "sys_platform != 'linux'", specifier = ">=2.8.0" },
     { name = "torch", marker = "sys_platform == 'linux'", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/rocm6.4" },
-    { name = "torchvision", marker = "sys_platform != 'linux'", specifier = ">=0.23.0" },
-    { name = "torchvision", marker = "sys_platform == 'linux'", specifier = ">=0.23.0", index = "https://download.pytorch.org/whl/rocm6.4" },
+    { name = "torchvision", marker = "sys_platform != 'linux'", specifier = ">=0.2.0" },
+    { name = "torchvision", marker = "sys_platform == 'linux'", specifier = ">=0.2.0", index = "https://download.pytorch.org/whl/rocm6.4" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
 

@@ -8,9 +8,9 @@ import torchvision
 from seamless_clone import clone
 from tqdm import tqdm
 
-from src.core.generate import GeneratorHandler
-from src.data.config import load_config
-from src.data.datasets import LabeledShoeDataset, dataset_transform
+from one_to_many_gan.core.generate import GeneratorHandler
+from one_to_many_gan.data.config import load_config
+from one_to_many_gan.data.datasets import ShoeDataset, dataset_transform
 
 config = load_config("config.toml")
 
@@ -23,9 +23,16 @@ random.seed(config["training"]["random_seed"])
 flooring_images = list(config["generation"]["flooring_dir"].glob("*"))
 flooring_images = [str(f) for f in flooring_images if f.is_file()]
 
-transform = dataset_transform(config["data"]["image_size"], *config["data"]["shoeprint_norm"])
-shoeprint_data = LabeledShoeDataset(
-    config["data"]["shoeprint_data_dir"], mode="train", transform=transform, flip_prob=0
+transform = dataset_transform(
+    config["data"]["image_size"],
+    *config["data"]["shoeprint_norm"],
+    random_image_flip=config["training"]["random_image_flip"],
+)
+shoeprint_data = ShoeDataset(
+    config["data"]["shoeprint_data_dir"],
+    mode="train",
+    transform=transform,
+    labelled=True,
 )
 shoeprint_dataloader = torch.utils.data.DataLoader(
     shoeprint_data,

@@ -3,9 +3,10 @@
 [training]
 batch_size = 4
 random_seed = 42
-training_steps = 150_000
+batch_agnostic_steps = 150_000 # Equivalent to the number of steps if batch_size=1
 image_buffer_size = 100
 style_mixing_prob = 0.9 # Probability to use two different style vectors in the decoder
+random_image_flip = true
 deterministic_cuda_kernels = false # Exact results between different GPUs, but 4x slower
 gpu_number = 0
 checkpoint_directory = "checkpoints"
@@ -14,9 +15,6 @@ training_run = "run_name"
 [inference]
 checkpoint = "checkpoints/final_3/140000.tar"
 batch_size = 16
-
-[generation]
-flooring_dir = "flooring/"
 
 [optimisation]
 style_cycle_loss_lambda = 5.0
@@ -34,9 +32,10 @@ log_interval = 500
 checkpoint_interval = 5_000
 cond_is_n_evaluation_images = 100 # Number of images generated for conditional inception score
 n_evaluation_images = 10_000
+use_training_data = true # Seems counter-intuitive but recommended by the literature
 
 [architecture]
-w_dim = 6 # Dimensionality of the style vector
+s_dim = 6 # Dimensionality of the style vector
 add_latent_noise = false # Add noise to latent feature maps
 min_latent_resolution = 64
 n_resnet_blocks = 7

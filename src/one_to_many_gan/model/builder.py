@@ -1,7 +1,6 @@
 """Different models used in overall architecture."""
 
 import math
-from typing import cast
 
 import torch
 import torch.nn.functional as F
@@ -16,7 +15,7 @@ from .layers import DownSample, EqualisedConv2d, EqualisedLinear, UpSample
 class MappingNetwork(nn.Module):
     """Maps from latent vector z to intermediate latent vector w."""
 
-    def __init__(self, features: int, n_layers: int, style_mixing_prob: float):
+    def __init__(self, features: int, n_layers: int, style_mixing_prob: float, n_gen_blocks: int):
         super().__init__()
 
         self.d_latent = features
@@ -36,21 +35,16 @@ class MappingNetwork(nn.Module):
         layers[-1] = nn.ReLU(inplace=True)
 
         self.net = nn.Sequential(*layers)
-
-        # Style vector when \theta=0
-        shoeprint_style_vector = torch.zeros((1, 1, features), dtype=torch.float)
-        self.register_buffer("shoeprint_style_vector", shoeprint_style_vector, persistent=False)
+        self.n_gen_blocks = n_gen_blocks
 
     def forward(self, z: torch.Tensor):
         z = F.normalize(z, dim=1)
 
         return self.net(z)
 
-    # TODO rename to get_two_s
-    def get_two_w(
+    def get_two_s(
         self,
         batch_size: int,
-        n_gen_blocks: int,
         device: torch.device,
         domain_variables: tuple[torch.Tensor, torch.Tensor],
         *,
@@ -59,56 +53,36 @@ class MappingNetwork(nn.Module):
         """Apply two domain variables to the same style vector."""
         d1, d2 = domain_variables
 
-        style_vector = self._get_style_vector(
-            batch_size, n_gen_blocks, device, mix_styles=mix_styles
-        )
+        style_vector = self._get_style_vector(batch_size, device, mix_styles=mix_styles)
 
-        shoeprint_style_vector = cast(torch.Tensor, self.shoeprint_style_vector)
-        w1 = torch.lerp(
-            shoeprint_style_vector, style_vector, d1.view(1, -1, 1)
-        )  # d1: [1, batch_dim, 1]
-        w2 = torch.lerp(shoeprint_style_vector, style_vector, d2.view(1, -1, 1))
+        s1 = style_vector * d1.view(1, batch_size, 1)
+        s2 = style_vector * d2.view(1, batch_size, 1)
 
-        return w1, w2
+        return s1, s2
 
-    def get_single_w(
+    def get_single_s(
         self,
         batch_size: int,
-        n_gen_blocks: int,
         device: torch.device,
         domain_variable: float | torch.Tensor,
         *,
         mix_styles=True,
     ) -> torch.Tensor:
         """Apply a domain variable to a single style vector."""
-        shoeprint_style_vector = cast(torch.Tensor, self.shoeprint_style_vector)
+        style_vector = self._get_style_vector(batch_size, device, mix_styles=mix_styles)
 
-        if domain_variable == 0:
-            return shoeprint_style_vector.expand((n_gen_blocks, batch_size, self.d_latent))
-
-        style_vector = self._get_style_vector(
-            batch_size, n_gen_blocks, device, mix_styles=mix_styles
-        )
-
-        if isinstance(domain_variable, torch.Tensor):
-            # Reshape for broadcasting
-            d = domain_variable.view(1, -1, 1)
-        else:  # Scalar case
-            d = torch.tensor(domain_variable, dtype=torch.float, device=device).view(1, 1, 1)
-
-        return torch.lerp(shoeprint_style_vector, style_vector, d)
+        return style_vector * domain_variable
 
     def _get_style_vector(
         self,
         batch_size: int,
-        n_gen_blocks: int,
         device: torch.device,
         *,
         mix_styles=True,
     ) -> torch.Tensor:
-        """Sample z randomly and get style vector s from mapping network."""
+        """Sample w randomly and get style vector s from mapping network."""
         if mix_styles and torch.rand(()).lt(self.style_mixing_prob):
-            cross_over_point = torch.randint(0, n_gen_blocks, ())
+            cross_over_point = torch.randint(0, self.n_gen_blocks, ())
 
             z1 = torch.randn(batch_size, self.d_latent).to(device)
             z2 = torch.randn(batch_size, self.d_latent).to(device)
@@ -117,12 +91,12 @@ class MappingNetwork(nn.Module):
             s2 = self.forward(z2)
 
             s1 = s1[None, :, :].expand(cross_over_point, -1, -1)
-            s2 = s2[None, :, :].expand(n_gen_blocks - cross_over_point, -1, -1)
+            s2 = s2[None, :, :].expand(self.n_gen_blocks - cross_over_point, -1, -1)
             s = torch.cat((s1, s2), dim=0)
         else:
             z = torch.randn(batch_size, self.d_latent).to(device)
             s = self.forward(z)
-            s = s[None, :, :].expand(n_gen_blocks, -1, -1)
+            s = s[None, :, :].expand(self.n_gen_blocks, -1, -1)
 
         return s
 
@@ -136,7 +110,7 @@ class Generator(nn.Module):
     def __init__(
         self,
         input_nc: int,
-        w_dim: int,
+        s_dim: int,
         image_size: tuple[int, int],
         min_latent_resolution: int,
         n_resnet_blocks: int,
@@ -175,14 +149,14 @@ class Generator(nn.Module):
 
         # Decoder portion of resnet blocks
         decoder = [
-            ModulatedResnetBlock(filters, w_dim=w_dim) for _ in range(n_decoder_resnet_blocks)
+            ModulatedResnetBlock(filters, s_dim=s_dim) for _ in range(n_decoder_resnet_blocks)
         ]
 
         # Upsample to image dimensions
         for _ in range(n_downsamples):
             decoder += [
                 UpSample(),
-                Conv2dWeightModulate(filters, filters // 2, kernel_size=3, padding=1, w_dim=w_dim),
+                Conv2dWeightModulate(filters, filters // 2, kernel_size=3, padding=1, s_dim=s_dim),
                 nn.ReLU(inplace=True),
             ]
             filters //= 2
@@ -206,25 +180,25 @@ class Generator(nn.Module):
         """Encode x to latent space z."""
         return self.encoder(x)
 
-    def decode(self, z: torch.Tensor, w: torch.Tensor):
-        """Decode from latent space z to image, using style vector w."""
+    def decode(self, z: torch.Tensor, s: torch.Tensor):
+        """Decode from latent space z to image, using style vector s."""
         i = 0
         for layer in self.decoder:
             if isinstance(layer, ModulatedResnetBlock | Conv2dWeightModulate):
-                z = layer(z, w[i])
+                z = layer(z, s[i])
                 i += 1
             else:
                 z = layer(z)
 
         return z
 
-    def extract(self, z: torch.Tensor, w: torch.Tensor):
+    def extract(self, z: torch.Tensor, s: torch.Tensor):
         """Return feature maps from specified layers."""
         features = []
         i = 0
         for layer in self.decoder:
             if isinstance(layer, ModulatedResnetBlock | Conv2dWeightModulate):
-                z = layer(z, w[i])
+                z = layer(z, s[i])
                 i += 1
 
                 # Return each weight demodulation layer
@@ -237,9 +211,9 @@ class Generator(nn.Module):
         msg = "No return layers specified."
         raise ValueError(msg)
 
-    def forward(self, x: torch.Tensor, w: torch.Tensor):
+    def forward(self, x: torch.Tensor, s: torch.Tensor):
         x = self.encode(x)
-        return self.decode(x, w)
+        return self.decode(x, s)
 
 
 # * Discriminator
@@ -282,7 +256,7 @@ class Discriminator(nn.Module):
 class StyleExtractor(nn.Module):
     """Given an image, extract the style vector used to create it."""
 
-    def __init__(self, input_nc: int = 1, w_dim: int = 8):
+    def __init__(self, input_nc: int = 1, s_dim: int = 8):
         super().__init__()
 
         self.model = nn.Sequential(
@@ -302,7 +276,7 @@ class StyleExtractor(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            EqualisedLinear(512, w_dim),
+            EqualisedLinear(512, s_dim),
         )
 
     def forward(self, x):

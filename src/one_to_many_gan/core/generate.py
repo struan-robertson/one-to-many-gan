@@ -15,6 +15,8 @@ class GeneratorHandler:
         config: Config,
         device: torch.device,
     ):
+        torch.set_float32_matmul_precision("high")
+
         generator = (
             Generator(
                 input_nc=config["data"]["image_channels"],
@@ -51,8 +53,10 @@ class GeneratorHandler:
         for param in mapping_network.parameters():
             param.requires_grad = False
 
-        self.generator = generator
-        self.mapping_network = mapping_network
+        mode = "max-autotune"
+        mode = "default"
+        self.generator = torch.compile(generator, fullgraph=True, mode=mode)
+        self.mapping_network = torch.compile(mapping_network, fullgraph=True, mode=mode)
         self.device = device
         self.shoeprint_norm = config["data"]["shoeprint_norm"]
 

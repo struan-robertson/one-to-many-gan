@@ -172,7 +172,7 @@ class Generator(nn.Module):
 
         self.n_style_blocks = sum(
             [
-                isinstance(m, ModulatedResnetBlock | Conv2dWeightModulate) for m in self.decoder
+                isinstance(m, (ModulatedResnetBlock, Conv2dWeightModulate)) for m in self.decoder
             ]  # Use list comprehension instead of generator for compatibility with torch.compile
         )
 
@@ -184,7 +184,7 @@ class Generator(nn.Module):
         """Decode from latent space z to image, using style vector s."""
         i = 0
         for layer in self.decoder:
-            if isinstance(layer, ModulatedResnetBlock | Conv2dWeightModulate):
+            if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):
                 z = layer(z, s[i])
                 i += 1
             else:
@@ -197,7 +197,7 @@ class Generator(nn.Module):
         features = []
         i = 0
         for layer in self.decoder:
-            if isinstance(layer, ModulatedResnetBlock | Conv2dWeightModulate):
+            if isinstance(layer, (ModulatedResnetBlock, Conv2dWeightModulate)):
                 z = layer(z, s[i])
                 i += 1
 

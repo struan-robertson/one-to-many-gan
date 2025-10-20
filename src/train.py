@@ -56,6 +56,7 @@ device = torch.device(
 
 torch.set_float32_matmul_precision("medium")
 torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 # ** Models
 
@@ -79,6 +80,10 @@ mapping_network = MappingNetwork(
 style_extractor = StyleExtractor(
     input_nc=config["data"]["image_channels"], s_dim=config["architecture"]["s_dim"]
 ).to(device)
+
+generator = torch.compile(generator, fullgraph=True, mode="default")
+mapping_network = torch.compile(mapping_network, fullgraph=True, mode="default")
+style_extractor = torch.compile(style_extractor, fullgraph=True, mode="default")
 
 # ** Optimisers
 

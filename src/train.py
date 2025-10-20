@@ -194,7 +194,7 @@ def _training_loop():
     shoeprint_checkpoint_images = shoeprint_val_data.random_sample(8)
     shoemark_checkpoint_images = shoemark_val_data.random_sample(8)
 
-    for step in trange(1, total_steps, dynamic_ncols=True):
+    for step in trange(1, total_steps + 1, dynamic_ncols=True):
         shoeprints = next(shoeprint_iter).to(device)
         shoemarks = next(shoemark_iter).to(device)
 
@@ -239,7 +239,6 @@ def _training_loop():
         logger.log_path_losses.append(path_loss)
         logger.log_style_losses.append(style_loss)
 
-        # TODO investigate why final evaluation is not running
         if step % config["evaluation"]["log_interval"] == 0 or step == total_steps:
             log_str = logger.print(step)
             write_logfile(config, log_str)

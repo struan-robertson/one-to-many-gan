@@ -15,8 +15,6 @@ class GeneratorHandler:
         config: Config,
         device: torch.device,
     ):
-        torch.set_float32_matmul_precision("high")
-
         generator = (
             Generator(
                 input_nc=config["data"]["image_channels"],

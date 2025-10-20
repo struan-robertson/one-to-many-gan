@@ -25,10 +25,6 @@ device = torch.device(
     f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
 )
 
-torch.set_float32_matmul_precision("medium")
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.set_grad_enabled(False)
-
 
 # * Models
 generator = (

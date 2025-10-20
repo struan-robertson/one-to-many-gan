@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Literal
 
 import torch
+import torchvision.transforms.v2 as transforms
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
 
 _dataset_mode = Literal["train", "test", "val"]
 
@@ -22,8 +22,7 @@ def dataset_transform(
     """Initialise transforms for a dataset."""
     transform_list = [
         transforms.Resize(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean, std),
+        transforms.Normalize(mean, std),  # pyright: ignore [reportArgumentType]
     ]
 
     if random_image_flip:
@@ -73,11 +72,9 @@ class ShoeDataset(Dataset):
         if len(image_files) == 0:
             raise FileNotFoundError
 
-        # TODO have loaded images as tensors, not PIL images
         self.images = []
         for image_file in image_files:
-            image = Image.open(image_file)
-            image.load()  # We don't want to load lazily
+            image = transforms.ToTensor()(Image.open(image_file))
             self.images.append(image)
 
         self.transform = transform

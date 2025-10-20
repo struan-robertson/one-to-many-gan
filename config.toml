@@ -3,7 +3,7 @@
 [training]
 batch_size = 4
 random_seed = 42
-batch_agnostic_steps = 150_000 # Equivalent to the number of steps if batch_size=1
+batch_agnostic_steps = 500_000 # Equivalent to the number of steps if batch_size=1
 image_buffer_size = 100
 style_mixing_prob = 0.9 # Probability to use two different style vectors in the decoder
 random_image_flip = true

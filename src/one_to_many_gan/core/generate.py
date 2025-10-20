@@ -61,7 +61,7 @@ class GeneratorHandler:
         self.shoeprint_norm = config["data"]["shoeprint_norm"]
 
     def generate(self, shoeprints: torch.Tensor, difficulty: float, *, normalised=False):
-        s = self.mapping_network.get_single_s(
+        s = self.mapping_network.get_single_s(  # pyright: ignore [reportFunctionMemberAccess]
             batch_size=shoeprints.shape[0],
             device=self.device,
             mix_styles=False,

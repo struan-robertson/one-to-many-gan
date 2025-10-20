@@ -10,19 +10,22 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
 _dataset_mode = Literal["train", "test", "val"]
+_to_tensor = transforms.Compose(
+    [transforms.ToImage(), transforms.ToDtype(torch.float32, scale=True)]
+)
 
 
 def dataset_transform(
     image_size: tuple[int, int],
-    mean: float | tuple[float, float, float],
-    std: float | tuple[float, float, float],
+    mean: float,
+    std: float,
     *,
     random_image_flip: bool = True,
 ):
     """Initialise transforms for a dataset."""
     transform_list = [
         transforms.Resize(image_size),
-        transforms.Normalize(mean, std),  # pyright: ignore [reportArgumentType]
+        transforms.Normalize([mean], [std]),
     ]
 
     if random_image_flip:
@@ -74,7 +77,7 @@ class ShoeDataset(Dataset):
 
         self.images = []
         for image_file in image_files:
-            image = transforms.ToTensor()(Image.open(image_file))
+            image = _to_tensor(Image.open(image_file))
             self.images.append(image)
 
         self.transform = transform

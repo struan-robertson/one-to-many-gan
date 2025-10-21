@@ -14,7 +14,6 @@ dependencies = [
     "torch>=2.8.0",
     "torchvision>=0.2.0",
     "tqdm>=4.67.1",
-    "pytorch-image-generation-metrics>=0.6.1",
     "opencv-python>=4.11.0.86",
     "line-profiler>=4.2.0",
 ]
@@ -44,6 +43,7 @@ explicit = true
 
 [dependency-groups]
 dev = [
+    "pympler>=1.1",
     "pyright>=1.1.406",
 ]
 

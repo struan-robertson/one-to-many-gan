@@ -9,12 +9,16 @@ import torch
 import torch.nn.functional as F
 import torchvision
 from cleanfid import fid
-from pytorch_image_generation_metrics import get_inception_score
-from tqdm import tqdm, trange
-
 from one_to_many_gan.core.training import ImageBuffer
 from one_to_many_gan.data.config import Config
-from one_to_many_gan.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from one_to_many_gan.external.inception_score import inception_score
+from one_to_many_gan.model.builder import (
+    Discriminator,
+    Generator,
+    MappingNetwork,
+    StyleExtractor,
+)
+from tqdm import tqdm, trange
 
 # * Checkpoints
 
@@ -23,7 +27,9 @@ def write_logfile(config: Config, line: str):
     """Print a line and write it to a log file."""
     tqdm.write(line)
     checkpoint_log_file = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "log"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "log"
     )
     checkpoint_log_file.parent.mkdir(exist_ok=True)
     with checkpoint_log_file.open("a") as file:
@@ -39,15 +45,20 @@ def validate_cis(
     shoeprint: torch.Tensor,
     mapping_network: MappingNetwork,
     generator: Generator,
+    inception_model,
 ):
     """Calculate conditional inception score (CIS) for an individual shoeprint."""
     # We want to use the same shoeprint to generate multiple shoemarks
-    shoeprints = shoeprint.expand(config["inference"]["batch_size"], -1, -1, -1).to(device)
+    shoeprints = shoeprint.to(device).expand(
+        config["inference"]["batch_size"], -1, -1, -1
+    )
 
-    shoemark_batches = []
+    shoemark_top_batches = []
+    shoemark_bottom_batches = []
     for _ in range(
         math.ceil(
-            config["evaluation"]["cond_is_n_evaluation_images"] / config["inference"]["batch_size"]
+            config["evaluation"]["cond_is_n_evaluation_images"]
+            / config["inference"]["batch_size"]
         )
     ):
         s = mapping_network.get_single_s(
@@ -59,25 +70,66 @@ def validate_cis(
 
         shoemarks = generator(shoeprints, s)
 
-        # Normalise to ensure [0-1] range
-        shoemarks_min = shoemarks.min()
-        shoemarks_max = shoemarks.max()
-        safe_range = shoemarks_max - shoemarks_min + 1e-8
-        shoemarks = (shoemarks - shoemarks_min) / safe_range
-
-        # Inception score model requires images of shape (3,299,299)
-        shoemarks = F.interpolate(
-            shoemarks, (299, 299), mode="bicubic", align_corners=False, antialias=True
-        )
         shoemarks = shoemarks.expand(-1, 3, -1, -1)
 
-        shoemark_batches.append(shoemarks)
+        # FIXME Hard coded 512x256 image size
 
-    combined_tensors = torch.cat(shoemark_batches, dim=0)
-    combined_tensors = cast(torch.FloatTensor, combined_tensors)
+        # Inception score model requires images of shape (3,299,299)
+        # Split into top and bottom to prevent large distortions when scaling
+        shoemark_tops = F.interpolate(
+            shoemarks[:, :, :256, :],
+            (299, 299),
+            mode="bicubic",
+            align_corners=False,
+            antialias=True,
+        )
+        shoemark_bottoms = F.interpolate(
+            shoemarks[:, :, 256:, :],
+            (299, 299),
+            mode="bicubic",
+            align_corners=False,
+            antialias=True,
+        )
 
-    is_, _ = get_inception_score(combined_tensors, use_torch=True)
-    return is_
+        # Normalise to ensure [0-1] range
+        def normalise(image: torch.Tensor):
+            image_min = image.min()
+            image_max = image.max()
+            safe_range = image_max - image_min + 1e-14
+            return (image - image_min) / safe_range
+
+        shoemark_tops = normalise(shoemark_tops)
+        shoemark_bottoms = normalise(shoemark_bottoms)
+
+        shoemark_top_batches.append(shoemarks)
+        shoemark_bottom_batches.append(shoemark_bottoms)
+
+    top_tensors = torch.cat(shoemark_top_batches, dim=0)[
+        : config["evaluation"]["cond_is_n_evaluation_images"]
+    ]
+    bottom_tensors = torch.cat(shoemark_bottom_batches, dim=0)[
+        : config["evaluation"]["cond_is_n_evaluation_images"]
+    ]
+
+    top_tensors = cast(torch.FloatTensor, top_tensors)
+    bottom_tensors = cast(torch.FloatTensor, bottom_tensors)
+
+    is_top, _ = inception_score(
+        top_tensors,
+        inception_model,
+        device=device,
+        batch_size=config["inference"]["batch_size"],
+        splits=1,
+    )
+    is_bottom, _ = inception_score(
+        bottom_tensors,
+        inception_model,
+        device=device,
+        batch_size=config["inference"]["batch_size"],
+        splits=1,
+    )
+
+    return (is_top + is_bottom) / 2
 
 
 def validate_kid_fid(
@@ -90,14 +142,19 @@ def validate_kid_fid(
     """Calculate FID and KID scores and save to checkpoint."""
     # Directory to store generated shoemarks
     val_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "val"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "val"
     )
     val_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate shoemarks and save to file
     shoemark_count = 0
     for _ in trange(
-        math.ceil(config["evaluation"]["n_evaluation_images"] / config["inference"]["batch_size"]),
+        math.ceil(
+            config["evaluation"]["n_evaluation_images"]
+            / config["inference"]["batch_size"]
+        ),
         desc="Generating shoemarks: ",
         leave=False,
         dynamic_ncols=True,
@@ -113,7 +170,9 @@ def validate_kid_fid(
         val_shoemarks = generator(shoeprints, s)
 
         for shoemark in val_shoemarks:
-            torchvision.utils.save_image(shoemark, val_checkpoint_dir / f"{shoemark_count}.png")
+            torchvision.utils.save_image(
+                shoemark, val_checkpoint_dir / f"{shoemark_count}.png"
+            )
             shoemark_count += 1
 
     shoemark_train_dir = config["data"]["shoemark_data_dir"] / "train"
@@ -142,7 +201,9 @@ def create_image_checkpoint(
 ):
     """Generate and save image checkpoints."""
     image_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "images"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "images"
     )
     image_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -264,7 +325,9 @@ def create_model_checkpoint(
 ):
     """Save all network training state to file."""
     models_checkpoint_dir = (
-        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "models"
+        config["training"]["checkpoint_directory"]
+        / config["training"]["training_run"]
+        / "models"
     )
     models_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     torch.save(

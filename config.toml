@@ -14,7 +14,7 @@ training_run = "run_name"
 
 [inference]
 checkpoint = "checkpoints/final_3/140000.tar"
-batch_size = 16
+batch_size = 64
 
 [optimisation]
 style_cycle_loss_lambda = 5.0

@@ -9,8 +9,6 @@ from torch.nn import functional as F
 
 def inception_score(imgs, inception_model, device, batch_size=32, splits=1):
     """Compute the inception score of the generated images."""
-    # Set up dtype
-    # Set up dataloader
     dataloader = torch.utils.data.DataLoader(imgs, batch_size=batch_size)
 
     def get_pred(x):

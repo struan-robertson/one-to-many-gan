@@ -25,9 +25,9 @@ device = torch.device(
     f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
 )
 
-torch.set_float32_matmul_precision("medium")
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+torch.backends.fp32_precision = "tf32"
+torch.backends.cuda.fp32_precision = "tf32"
+torch.backends.cudnn.fp32_precision = "tf32"
 
 
 # * Models
@@ -46,9 +46,9 @@ mapping_network = MappingNetwork(
     n_gen_blocks=generator.n_style_blocks,
 )
 
-generator = torch.compile(generator, fullgraph=True, mode="default").to(device).eval()
+generator = torch.compile(generator, fullgraph=True, mode="default").to(device).eval()  # pyright: ignore [reportFunctionMemberAccess]
 mapping_network = (
-    torch.compile(mapping_network, fullgraph=True, mode="default").to(device).eval()
+    torch.compile(mapping_network, fullgraph=True, mode="default").to(device).eval()  # pyright: ignore [reportFunctionMemberAccess]
 )
 inception_model = inception_v3(weights="DEFAULT").to(device)
 inception_model.eval()
@@ -120,7 +120,7 @@ def _test_cis(saved_models_path: Path):
                 mean_score = np.mean(inception_scores)
 
                 with (run / "scores.txt").open("a") as f:
-                    f.write(f"{checkpoint.stem}: {mean_score}\n")
+                    f.write(f"Step {checkpoint.stem} | cis: {mean_score}\n")
 
 
 if __name__ == "__main__":

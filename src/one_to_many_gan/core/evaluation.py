@@ -2,7 +2,6 @@
 
 import math
 from collections.abc import Iterator
-from typing import cast
 
 import numpy as np
 import torch
@@ -53,8 +52,7 @@ def validate_cis(
         config["inference"]["batch_size"], -1, -1, -1
     )
 
-    shoemark_top_batches = []
-    shoemark_bottom_batches = []
+    shoemark_batches = []
     for _ in range(
         math.ceil(
             config["evaluation"]["cond_is_n_evaluation_images"]
@@ -70,26 +68,11 @@ def validate_cis(
 
         shoemarks = generator(shoeprints, s)
 
-        shoemarks = shoemarks.expand(-1, 3, -1, -1)
-
-        # FIXME Hard coded 512x256 image size
-
         # Inception score model requires images of shape (3,299,299)
-        # Split into top and bottom to prevent large distortions when scaling
-        shoemark_tops = F.interpolate(
-            shoemarks[:, :, :256, :],
-            (299, 299),
-            mode="bicubic",
-            align_corners=False,
-            antialias=True,
+        shoemarks = F.interpolate(
+            shoemarks, (299, 299), mode="bicubic", align_corners=False, antialias=True
         )
-        shoemark_bottoms = F.interpolate(
-            shoemarks[:, :, 256:, :],
-            (299, 299),
-            mode="bicubic",
-            align_corners=False,
-            antialias=True,
-        )
+        shoemarks = shoemarks.expand(-1, 3, -1, -1)
 
         # Normalise to ensure [0-1] range
         def normalise(image: torch.Tensor):
@@ -98,38 +81,23 @@ def validate_cis(
             safe_range = image_max - image_min + 1e-14
             return (image - image_min) / safe_range
 
-        shoemark_tops = normalise(shoemark_tops)
-        shoemark_bottoms = normalise(shoemark_bottoms)
+        shoemarks = normalise(shoemarks)
 
-        shoemark_top_batches.append(shoemarks)
-        shoemark_bottom_batches.append(shoemark_bottoms)
+        shoemark_batches.append(shoemarks)
 
-    top_tensors = torch.cat(shoemark_top_batches, dim=0)[
-        : config["evaluation"]["cond_is_n_evaluation_images"]
-    ]
-    bottom_tensors = torch.cat(shoemark_bottom_batches, dim=0)[
+    top_tensors = torch.cat(shoemark_batches, dim=0)[
         : config["evaluation"]["cond_is_n_evaluation_images"]
     ]
 
-    top_tensors = cast(torch.FloatTensor, top_tensors)
-    bottom_tensors = cast(torch.FloatTensor, bottom_tensors)
-
-    is_top, _ = inception_score(
+    is_, _ = inception_score(
         top_tensors,
         inception_model,
         device=device,
         batch_size=config["inference"]["batch_size"],
         splits=1,
     )
-    is_bottom, _ = inception_score(
-        bottom_tensors,
-        inception_model,
-        device=device,
-        batch_size=config["inference"]["batch_size"],
-        splits=1,
-    )
 
-    return (is_top + is_bottom) / 2
+    return is_
 
 
 def validate_kid_fid(

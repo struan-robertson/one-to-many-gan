@@ -9,8 +9,6 @@ import sys
 import numpy as np
 import torch
 import torch.utils.data
-from tqdm import trange
-
 from one_to_many_gan.core.evaluation import (
     Logger,
     create_image_checkpoint,
@@ -54,9 +52,9 @@ device = torch.device(
     f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
 )
 
-torch.set_float32_matmul_precision("medium")
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+torch.backends.fp32_precision = "tf32"
+torch.backends.cuda.fp32_precision = "tf32"
+torch.backends.cudnn.fp32_precision = "tf32"
 
 # ** Models
 

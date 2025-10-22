@@ -5,6 +5,7 @@ import math
 import os
 import random
 import sys
+from typing import cast
 
 import numpy as np
 import torch
@@ -16,10 +17,24 @@ from one_to_many_gan.core.evaluation import (
     validate_kid_fid,
     write_logfile,
 )
-from one_to_many_gan.core.training import ImageBuffer, discriminator_step, generator_step
+from one_to_many_gan.core.training import (
+    ImageBuffer,
+    discriminator_step,
+    generator_step,
+)
 from one_to_many_gan.data.config import load_config
-from one_to_many_gan.data.datasets import CyclingDataLoader, ShoeDataset, dataset_transform
-from one_to_many_gan.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
+from one_to_many_gan.data.datasets import (
+    CyclingDataLoader,
+    ShoeDataset,
+    dataset_transform,
+)
+from one_to_many_gan.model.builder import (
+    Discriminator,
+    Generator,
+    MappingNetwork,
+    StyleExtractor,
+)
+from tqdm import trange
 
 config = (
     load_config("config.toml")
@@ -52,9 +67,9 @@ device = torch.device(
     f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"
 )
 
-torch.backends.fp32_precision = "tf32"
-torch.backends.cuda.fp32_precision = "tf32"
-torch.backends.cudnn.fp32_precision = "tf32"
+torch.backends.fp32_precision = "tf32"  # pyright: ignore [reportAttributeAccessIssue]
+torch.backends.cuda.fp32_precision = "tf32"  # pyright: ignore [reportAttributeAccessIssue]
+torch.backends.cudnn.fp32_precision = "tf32"  # pyright: ignore [reportAttributeAccessIssue]
 
 # ** Models
 
@@ -82,6 +97,10 @@ style_extractor = StyleExtractor(
 generator = torch.compile(generator, fullgraph=True, mode="default")
 mapping_network = torch.compile(mapping_network, fullgraph=True, mode="default")
 style_extractor = torch.compile(style_extractor, fullgraph=True, mode="default")
+
+generator = cast(Generator, generator)
+mapping_network = cast(MappingNetwork, mapping_network)
+style_extractor = cast(StyleExtractor, style_extractor)
 
 # ** Optimisers
 
@@ -196,6 +215,14 @@ def _training_loop():
     # Use the same images in the image checkpoints
     shoeprint_checkpoint_images = shoeprint_val_data.random_sample(8)
     shoemark_checkpoint_images = shoemark_val_data.random_sample(8)
+
+    # Not very clean but torch.comp changes types
+    global generator  # noqa: PLW0603
+    global mapping_network  # noqa: PLW0603
+    global style_extractor  # noqa: PLW0603
+    generator = cast(Generator, generator)
+    mapping_network = cast(MappingNetwork, mapping_network)
+    style_extractor = cast(StyleExtractor, style_extractor)
 
     for step in trange(1, total_steps + 1, dynamic_ncols=True):
         shoeprints = next(shoeprint_iter).to(device)

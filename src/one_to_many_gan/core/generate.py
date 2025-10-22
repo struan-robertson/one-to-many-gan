@@ -1,8 +1,9 @@
 """Generate synthetic data."""
 
+from typing import cast
+
 import torch
 import torchvision.transforms.v2.functional as F
-
 from one_to_many_gan.data.config import Config
 from one_to_many_gan.model.builder import Generator, MappingNetwork
 
@@ -38,6 +39,11 @@ class GeneratorHandler:
             .eval()
         )
 
+        generator = torch.compile(generator, fullgraph=True, mode="default")
+        mapping_network = torch.compile(mapping_network, fullgraph=True, mode="default")
+        generator = cast(Generator, generator)
+        mapping_network = cast(MappingNetwork, mapping_network)
+
         checkpoint = torch.load(
             config["inference"]["checkpoint"],
             map_location=device,
@@ -51,14 +57,14 @@ class GeneratorHandler:
         for param in mapping_network.parameters():
             param.requires_grad = False
 
-        mode = "max-autotune"
-        mode = "default"
-        self.generator = torch.compile(generator, fullgraph=True, mode=mode)
-        self.mapping_network = torch.compile(mapping_network, fullgraph=True, mode=mode)
         self.device = device
         self.shoeprint_norm = config["data"]["shoeprint_norm"]
+        self.generator = generator
+        self.mapping_network = mapping_network
 
-    def generate(self, shoeprints: torch.Tensor, difficulty: float, *, normalised=False):
+    def generate(
+        self, shoeprints: torch.Tensor, difficulty: float, *, normalised=False
+    ):
         s = self.mapping_network.get_single_s(  # pyright: ignore [reportFunctionMemberAccess]
             batch_size=shoeprints.shape[0],
             device=self.device,

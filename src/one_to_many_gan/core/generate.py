@@ -4,6 +4,7 @@ from typing import cast
 
 import torch
 import torchvision.transforms.v2.functional as F
+
 from one_to_many_gan.data.config import Config
 from one_to_many_gan.model.builder import Generator, MappingNetwork
 
@@ -63,16 +64,33 @@ class GeneratorHandler:
         self.mapping_network = mapping_network
 
     def generate(
-        self, shoeprints: torch.Tensor, difficulty: float, *, normalised=False
+        self,
+        shoeprints: torch.Tensor,
+        *,
+        normalised=False,
+        difficulty: float | None = None,
+        style: torch.Tensor | None = None,
     ):
-        s = self.mapping_network.get_single_s(  # pyright: ignore [reportFunctionMemberAccess]
-            batch_size=shoeprints.shape[0],
-            device=self.device,
-            mix_styles=False,
-            domain_variable=difficulty,
-        )
+        if style is None:
+            if difficulty is None:
+                raise ValueError("Either 'style' or 'difficulty' must be provided.")
+
+            style = self.mapping_network.get_single_s(
+                batch_size=shoeprints.shape[0],
+                device=self.device,
+                mix_styles=False,
+                domain_variable=difficulty,
+            )
 
         if not normalised:
             shoeprints = F.normalize(shoeprints, *self.shoeprint_norm)  # pyright: ignore [reportArgumentType]
 
-        return self.generator(shoeprints, s)
+        return self.generator(shoeprints, style)
+
+    def get_style(self, batch_size: int, difficulty: float):
+        return self.mapping_network.get_single_s(  # pyright: ignore [reportFunctionMemberAccess]
+            batch_size=batch_size,
+            device=self.device,
+            mix_styles=False,
+            domain_variable=difficulty,
+        )

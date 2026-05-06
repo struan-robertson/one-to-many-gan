@@ -2,22 +2,19 @@
 
 import math
 from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision
 from cleanfid import fid
+from tqdm import tqdm, trange
+
 from one_to_many_gan.core.training import ImageBuffer
 from one_to_many_gan.data.config import Config
 from one_to_many_gan.external.inception_score import inception_score
-from one_to_many_gan.model.builder import (
-    Discriminator,
-    Generator,
-    MappingNetwork,
-    StyleExtractor,
-)
-from tqdm import tqdm, trange
+from one_to_many_gan.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
 
 # * Checkpoints
 
@@ -26,9 +23,7 @@ def write_logfile(config: Config, line: str):
     """Print a line and write it to a log file."""
     tqdm.write(line)
     checkpoint_log_file = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "log"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "log"
     )
     checkpoint_log_file.parent.mkdir(exist_ok=True)
     with checkpoint_log_file.open("a") as file:
@@ -48,15 +43,12 @@ def validate_cis(
 ):
     """Calculate conditional inception score (CIS) for an individual shoeprint."""
     # We want to use the same shoeprint to generate multiple shoemarks
-    shoeprints = shoeprint.to(device).expand(
-        config["inference"]["batch_size"], -1, -1, -1
-    )
+    shoeprints = shoeprint.to(device).expand(config["inference"]["batch_size"], -1, -1, -1)
 
     shoemark_batches = []
     for _ in range(
         math.ceil(
-            config["evaluation"]["cond_is_n_evaluation_images"]
-            / config["inference"]["batch_size"]
+            config["evaluation"]["cond_is_n_evaluation_images"] / config["inference"]["batch_size"]
         )
     ):
         s = mapping_network.get_single_s(
@@ -106,23 +98,18 @@ def validate_kid_fid(
     shoeprint_val_iter: Iterator[torch.Tensor],
     mapping_network: MappingNetwork,
     generator: Generator,
+    generation_dir: Path,
+    shoemark_dir: Path,
 ):
     """Calculate FID and KID scores and save to checkpoint."""
     # Directory to store generated shoemarks
-    val_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "val"
-    )
-    val_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    generation_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate shoemarks and save to file
     shoemark_count = 0
     for _ in trange(
-        math.ceil(
-            config["evaluation"]["n_evaluation_images"]
-            / config["inference"]["batch_size"]
-        ),
+        math.ceil(config["evaluation"]["n_evaluation_images"] / config["inference"]["batch_size"]),
         desc="Generating shoemarks: ",
         leave=False,
         dynamic_ncols=True,
@@ -138,17 +125,14 @@ def validate_kid_fid(
         val_shoemarks = generator(shoeprints, s)
 
         for shoemark in val_shoemarks:
-            torchvision.utils.save_image(
-                shoemark, val_checkpoint_dir / f"{shoemark_count}.png"
-            )
+            torchvision.utils.save_image(shoemark, generation_dir / f"{shoemark_count}.png")
             shoemark_count += 1
 
-    shoemark_train_dir = config["data"]["shoemark_data_dir"] / "train"
     fid_score = fid.compute_fid(
-        str(val_checkpoint_dir), str(shoemark_train_dir), verbose=False, device=device
+        str(generation_dir), str(shoemark_dir), verbose=False, device=device
     )
     kid_score = fid.compute_kid(
-        str(val_checkpoint_dir), str(shoemark_train_dir), verbose=False, device=device
+        str(generation_dir), str(shoemark_dir), verbose=False, device=device
     )
 
     return fid_score, kid_score
@@ -169,9 +153,7 @@ def create_image_checkpoint(
 ):
     """Generate and save image checkpoints."""
     image_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "images"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "images"
     )
     image_checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -293,9 +275,7 @@ def create_model_checkpoint(
 ):
     """Save all network training state to file."""
     models_checkpoint_dir = (
-        config["training"]["checkpoint_directory"]
-        / config["training"]["training_run"]
-        / "models"
+        config["training"]["checkpoint_directory"] / config["training"]["training_run"] / "models"
     )
     models_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     torch.save(

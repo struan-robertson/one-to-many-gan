@@ -5,12 +5,13 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torchvision.models.inception import inception_v3
+from tqdm import tqdm
+
 from one_to_many_gan.core.evaluation import validate_cis
 from one_to_many_gan.data.config import load_config
 from one_to_many_gan.data.datasets import ShoeDataset, dataset_transform
 from one_to_many_gan.model.builder import Generator, MappingNetwork
-from torchvision.models.inception import inception_v3
-from tqdm import tqdm
 
 config = (
     load_config("config.toml")
@@ -90,13 +91,13 @@ shoeprint_val_dataloader = torch.utils.data.DataLoader(
 def _test_cis(saved_models_path: Path):
     training_runs = [entry for entry in saved_models_path.iterdir() if entry.is_dir()]
 
-    work = sum(1 for p in saved_models_path.rglob("*.tar") if p.is_file()) * 100
+    work = sum(1 for p in saved_models_path.rglob("50000.tar") if p.is_file()) * 100
 
     shoeprints = next(iter(shoeprint_val_dataloader))
 
     with tqdm(total=work, dynamic_ncols=True) as pbar:
         for run in training_runs:
-            checkpoints = [file for file in run.glob("*.tar") if file.is_file()]
+            checkpoints = [file for file in run.glob("50000.tar") if file.is_file()]
             checkpoints = sorted(checkpoints, key=lambda p: int(p.stem))
 
             for checkpoint in checkpoints:
@@ -119,9 +120,9 @@ def _test_cis(saved_models_path: Path):
                     pbar.update()
                 mean_score = np.mean(inception_scores)
 
-                with (run / "scores.txt").open("a") as f:
+                with (saved_models_path / "cis_scores.txt").open("a") as f:
                     f.write(f"Step {checkpoint.stem} | cis: {mean_score}\n")
 
 
 if __name__ == "__main__":
-    _test_cis(Path("checkpoints/new_data_partition"))
+    _test_cis(Path("/home/struan/Vault/University/Doctorate/Ablation/gan/only_style_3"))

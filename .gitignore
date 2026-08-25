@@ -14,3 +14,5 @@
 /.agent-shell/
 /checkpoints
 campaign_gan_*.toml
+style_analysis/
+style_analysis_old_final_ckpt/

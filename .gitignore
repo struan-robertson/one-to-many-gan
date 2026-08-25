@@ -13,3 +13,4 @@
 *.jpg
 /.agent-shell/
 /checkpoints
+campaign_gan_*.toml

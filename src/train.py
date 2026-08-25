@@ -22,7 +22,7 @@ from one_to_many_gan.core.training import (
     discriminator_step,
     generator_step,
 )
-from one_to_many_gan.data.config import load_config
+from one_to_many_gan.data.config import parse_config
 from one_to_many_gan.data.datasets import (
     CyclingDataLoader,
     ShoeDataset,
@@ -36,11 +36,7 @@ from one_to_many_gan.model.builder import (
 )
 from tqdm import trange
 
-config = (
-    load_config("config.toml")
-    if len(sys.argv) < 2 or sys.argv[1] == ""
-    else load_config(sys.argv[1])
-)
+config = parse_config()
 
 total_steps = math.ceil(
     config["training"]["batch_agnostic_steps"] / config["training"]["batch_size"]

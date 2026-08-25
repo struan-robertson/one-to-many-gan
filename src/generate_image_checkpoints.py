@@ -7,15 +7,11 @@ from typing import cast
 import torch
 import torchvision
 
-from one_to_many_gan.data.config import load_config
+from one_to_many_gan.data.config import parse_config
 from one_to_many_gan.data.datasets import ShoeDataset, dataset_transform
 from one_to_many_gan.model.builder import Generator, MappingNetwork, StyleExtractor
 
-config = (
-    load_config("config.toml")
-    if len(sys.argv) < 2 or sys.argv[1] == ""
-    else load_config(sys.argv[1])
-)
+config = parse_config()
 
 device = torch.device(
     f"cuda:{config['training']['gpu_number']}" if torch.cuda.is_available() else "cpu"

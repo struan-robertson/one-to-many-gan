@@ -9,15 +9,11 @@ from torchvision.models.inception import inception_v3
 from tqdm import tqdm
 
 from one_to_many_gan.core.evaluation import validate_cis
-from one_to_many_gan.data.config import load_config
+from one_to_many_gan.data.config import parse_config
 from one_to_many_gan.data.datasets import ShoeDataset, dataset_transform
 from one_to_many_gan.model.builder import Generator, MappingNetwork
 
-config = (
-    load_config("config.toml")
-    if len(sys.argv) < 2 or sys.argv[1] == ""
-    else load_config(sys.argv[1])
-)
+config = parse_config()
 
 
 # * Initialisation

@@ -41,6 +41,7 @@ from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 
+from impression_tools.geometry import knn_pairs, lpips_pairs, morans_i, random_pairs
 from one_to_many_gan.core.generate import GeneratorHandler
 from one_to_many_gan.data.config import Config, load_config
 from one_to_many_gan.data.datasets import ShoeDataset, dataset_transform
@@ -122,53 +123,8 @@ def sample_run(
 
 
 @torch.no_grad()
-def lpips_pairs(
-    lp: lpips.LPIPS,
-    imgs: torch.Tensor,
-    pairs: np.ndarray,
-    device: torch.device,
-    batch: int = 512,
-    desc: str = "lpips",
-) -> np.ndarray:
-    """Perceptual (LPIPS) distance for each (i, j) index pair. Images are 1-channel
-    in [-1, 1]; LPIPS wants 3 channels, so each is repeated across RGB."""
-    pairs_t = torch.as_tensor(pairs, dtype=torch.long)
-    a_all, b_all = imgs[pairs_t[:, 0]], imgs[pairs_t[:, 1]]
-    out = []
-    for s in tqdm(range(0, len(pairs), batch), desc=desc, leave=False):
-        a = a_all[s : s + batch].to(device).repeat(1, 3, 1, 1)
-        b = b_all[s : s + batch].to(device).repeat(1, 3, 1, 1)
-        out.append(lp(a, b).flatten().cpu().numpy())
-    return np.concatenate(out)
 
 
-def morans_i(values: np.ndarray, coords: np.ndarray, k: int, rng: np.random.Generator, n_perm=999):
-    """Moran's I of ``values`` under k-NN weights over ``coords``, permutation p."""
-    idx = NearestNeighbors(n_neighbors=k + 1).fit(coords).kneighbors(coords, return_distance=False)
-    idx = idx[:, 1:]  # drop self
-
-    def stat(v):
-        z = v - v.mean()
-        return float((z * z[idx].sum(axis=1)).sum() / (k * (z**2).sum()))
-
-    obs = stat(values)
-    null = np.array([stat(rng.permutation(values)) for _ in range(n_perm)])
-    return obs, (1 + (null >= obs).sum()) / (1 + n_perm)
-
-
-def knn_pairs(coords: np.ndarray, k: int) -> np.ndarray:
-    """(i, neighbour) index pairs for each point's k nearest neighbours in ``coords``."""
-    idx = NearestNeighbors(n_neighbors=k + 1).fit(coords).kneighbors(coords, return_distance=False)
-    idx = idx[:, 1:]
-    n = len(coords)
-    return np.stack([np.repeat(np.arange(n), k), idx.reshape(-1)], axis=1)
-
-
-def random_pairs(n: int, count: int, rng: np.random.Generator) -> np.ndarray:
-    """``count`` random index pairs (i != j)."""
-    p = rng.integers(0, n, size=(int(count * 1.2), 2))
-    p = p[p[:, 0] != p[:, 1]][:count]
-    return p
 
 
 def summarise(values: list[float]) -> dict:

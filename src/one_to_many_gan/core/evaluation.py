@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision
-from cleanfid import fid
+from impression_tools.metrics import compute_fid_kid
 from tqdm import tqdm, trange
 
 from one_to_many_gan.core.training import ImageBuffer
@@ -128,17 +128,10 @@ def validate_kid_fid(
             torchvision.utils.save_image(shoemark, generation_dir / f"{shoemark_count}.png", normalize=True)
             shoemark_count += 1
 
-    # use_dataparallel=False: clean-fid's default wraps Inception in DataParallel,
-    # which ignores the device argument. Passing it explicitly is what the fork
-    # of clean-fid used to work around, and matches the UNSB project's calls
-    fid_score = fid.compute_fid(
-        str(generation_dir), str(shoemark_dir), verbose=False, device=device,
-        use_dataparallel=False
-    )
-    kid_score = fid.compute_kid(
-        str(generation_dir), str(shoemark_dir), verbose=False, device=device,
-        use_dataparallel=False
-    )
+    # Shared with the other projects so their scores stay comparable. This also
+    # seeds the KID subset draw, which was previously left to numpy's global
+    # state, so repeated measurements of one checkpoint now agree
+    fid_score, kid_score = compute_fid_kid(generation_dir, shoemark_dir, device)
 
     return fid_score, kid_score
 

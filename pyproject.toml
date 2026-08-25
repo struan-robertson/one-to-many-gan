@@ -19,6 +19,7 @@ dependencies = [
     "line-profiler>=4.2.0",
     "scikit-learn>=1.9.0",
     "lpips>=0.1.4",
+    "impression-tools",
 ]
 
 [build-system]
@@ -40,6 +41,7 @@ pytorch-triton-rocm = [
 triton-rocm = [
   { index = "pytorch-rocm", marker = "sys_platform == 'linux'" },
 ]
+impression-tools = { path = "../../impression_tools", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-rocm"

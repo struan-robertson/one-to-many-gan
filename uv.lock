@@ -230,6 +230,35 @@ wheels = [
 ]
 
 [[package]]
+name = "impression-tools"
+version = "0.1.0"
+source = { editable = "../../impression_tools" }
+dependencies = [
+    { name = "clean-fid" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
+    { name = "torch", version = "2.11.0+rocm7.2", source = { registry = "https://download.pytorch.org/whl/rocm7.2" }, marker = "sys_platform == 'linux'" },
+    { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
+    { name = "torchvision", version = "0.26.0+rocm7.2", source = { registry = "https://download.pytorch.org/whl/rocm7.2" }, marker = "sys_platform == 'linux'" },
+    { name = "tqdm" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "clean-fid", specifier = "==0.1.35" },
+    { name = "numpy", specifier = ">=2.2.3" },
+    { name = "pillow", specifier = ">=11.1.0" },
+    { name = "scikit-learn", specifier = ">=1.9.0" },
+    { name = "scipy", specifier = "<1.17" },
+    { name = "torch", specifier = ">=2.11.0" },
+    { name = "torchvision", specifier = ">=0.26.0" },
+    { name = "tqdm", specifier = ">=4.67.1" },
+]
+
+[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -536,6 +565,7 @@ source = { editable = "." }
 dependencies = [
     { name = "clean-fid" },
     { name = "gdown" },
+    { name = "impression-tools" },
     { name = "line-profiler" },
     { name = "lpips" },
     { name = "matplotlib" },
@@ -562,6 +592,7 @@ dev = [
 requires-dist = [
     { name = "clean-fid", specifier = "==0.1.35" },
     { name = "gdown", specifier = ">=5.2.0" },
+    { name = "impression-tools", editable = "../../impression_tools" },
     { name = "line-profiler", specifier = ">=4.2.0" },
     { name = "lpips", specifier = ">=0.1.4" },
     { name = "matplotlib", specifier = ">=3.10.1" },

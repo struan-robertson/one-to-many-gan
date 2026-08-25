@@ -3,6 +3,15 @@
 Style-conditioned translation of shoeprints to shoemarks. A single shoeprint
 maps to many plausible shoemarks, selected by a style vector.
 
+## Installation
+
+Choose the build of torch that matches the card:
+
+```sh
+uv sync --extra cuda
+uv sync --extra rocm
+```
+
 ## Configuration
 
 Options resolve as defaults, then `config.toml`, then command-line arguments.

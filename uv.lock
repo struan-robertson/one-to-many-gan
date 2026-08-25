@@ -65,7 +65,7 @@ wheels = [
 [[package]]
 name = "clean-fid"
 version = "0.1.35"
-source = { git = "https://github.com/janfb/clean-fid?rev=fix-dataparallel-device-handling#1aa5e333af6985d686892267b8c3dd5b31e1588d" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pillow" },
@@ -76,6 +76,9 @@ dependencies = [
     { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torchvision", version = "0.26.0+rocm7.2", source = { registry = "https://download.pytorch.org/whl/rocm7.2" }, marker = "sys_platform == 'linux'" },
     { name = "tqdm" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/70/56/0dfc83e0fe455cfe6272b23a65039b4101c63a4e7446801e26178b675fbf/clean_fid-0.1.35-py3-none-any.whl", hash = "sha256:757cf49d75debe9b07ab14955fe59c845a296deaf0616153b40c5e75b3cf87fb", size = 26008, upload-time = "2022-12-18T20:19:35.819Z" },
 ]
 
 [[package]]
@@ -557,7 +560,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "clean-fid", git = "https://github.com/janfb/clean-fid?rev=fix-dataparallel-device-handling" },
+    { name = "clean-fid", specifier = "==0.1.35" },
     { name = "gdown", specifier = ">=5.2.0" },
     { name = "line-profiler", specifier = ">=4.2.0" },
     { name = "lpips", specifier = ">=0.1.4" },

@@ -128,11 +128,16 @@ def validate_kid_fid(
             torchvision.utils.save_image(shoemark, generation_dir / f"{shoemark_count}.png", normalize=True)
             shoemark_count += 1
 
+    # use_dataparallel=False: clean-fid's default wraps Inception in DataParallel,
+    # which ignores the device argument. Passing it explicitly is what the fork
+    # of clean-fid used to work around, and matches the UNSB project's calls
     fid_score = fid.compute_fid(
-        str(generation_dir), str(shoemark_dir), verbose=False, device=device
+        str(generation_dir), str(shoemark_dir), verbose=False, device=device,
+        use_dataparallel=False
     )
     kid_score = fid.compute_kid(
-        str(generation_dir), str(shoemark_dir), verbose=False, device=device
+        str(generation_dir), str(shoemark_dir), verbose=False, device=device,
+        use_dataparallel=False
     )
 
     return fid_score, kid_score

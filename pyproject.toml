@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "One-to-Many GAN"
 requires-python = ">=3.13"
 dependencies = [
-    "clean-fid",
+    "clean-fid==0.1.35", # pinned to match the UNSB project for comparable scores
     "gdown>=5.2.0",
     "matplotlib>=3.10.1",
     "numpy>=2.2.3",
@@ -26,7 +26,6 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-clean-fid = { git = "https://github.com/janfb/clean-fid", rev = "fix-dataparallel-device-handling" }
 torch = [
   { index = "pytorch-rocm", marker = "sys_platform == 'linux'" },
 ]

@@ -1,6 +1,7 @@
 """Evaluate CIS score for a directory of trained models."""
 
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -8,9 +9,9 @@ import torch
 from torchvision.models.inception import inception_v3
 from tqdm import tqdm
 
-from one_to_many_gan.core.evaluation import validate_cis
+from one_to_many_gan.core.evaluation import validate_cis, validate_kid_fid
 from one_to_many_gan.data.config import load_config
-from one_to_many_gan.data.datasets import ShoeDataset, dataset_transform
+from one_to_many_gan.data.datasets import CyclingDataLoader, ShoeDataset, dataset_transform
 from one_to_many_gan.model.builder import Generator, MappingNetwork
 
 config = (
@@ -72,32 +73,30 @@ shoeprint_transform = dataset_transform(
     random_image_flip=False,
 )
 
-shoeprint_val_data = ShoeDataset(
+mode = "train"
+
+shoeprint_data = ShoeDataset(
     config["data"]["shoeprint_data_dir"],
-    mode="val",
+    mode=mode,
     transform=shoeprint_transform,
     channels=config["data"]["image_channels"],
 )
 
-shoeprint_val_dataloader = torch.utils.data.DataLoader(
-    shoeprint_val_data,
-    batch_size=100,
+shoeprint_dataloader = torch.utils.data.DataLoader(
+    shoeprint_data,
+    batch_size=64,
     shuffle=False,
     num_workers=0,
     drop_last=False,
     pin_memory=True,
 )
 
-
 # * Evaluation
 
 
-def _test_cis(saved_models_path: Path):
+def _test_kid_fid(saved_models_path: Path):
     training_runs = [entry for entry in saved_models_path.iterdir() if entry.is_dir()]
-
-    work = sum(1 for p in saved_models_path.rglob("50000.tar") if p.is_file()) * 100
-
-    shoeprints = next(iter(shoeprint_val_dataloader))
+    work = sum(1 for p in saved_models_path.rglob("*.tar") if p.is_file())
 
     with tqdm(total=work, dynamic_ncols=True) as pbar:
         for run in training_runs:
@@ -105,28 +104,30 @@ def _test_cis(saved_models_path: Path):
             checkpoints = sorted(checkpoints, key=lambda p: int(p.stem))
 
             for checkpoint in checkpoints:
+                shoeprint_iter = CyclingDataLoader(shoeprint_dataloader)
                 load_checkpoint(checkpoint)
-
                 pbar.set_description(f"{run.name}/{checkpoint.stem}")
 
-                inception_scores = []
-                for shoeprint in shoeprints:
-                    with torch.no_grad():
-                        inception_score = validate_cis(
-                            config,
-                            device,
-                            shoeprint,
-                            mapping_network,
-                            generator,
-                            inception_model,
-                        )
-                    inception_scores.append(inception_score)
-                    pbar.update()
-                mean_score = np.mean(inception_scores)
+                # Same per-checkpoint seeding as the in-training validation and
+                # rescore_best.py, so all three score identically at batch 64
+                torch.manual_seed(config["evaluation"].get("eval_seed", 0))
+                with torch.no_grad():
+                    fid_score, kid_score = validate_kid_fid(
+                        config,
+                        device,
+                        shoeprint_iter,
+                        mapping_network,
+                        generator,
+                        saved_models_path / "val",
+                        config["data"]["shoemark_data_dir"] / "train",
+                    )
 
-                with (saved_models_path / "cis_scores.txt").open("a") as f:
-                    f.write(f"Step {checkpoint.stem} | cis: {mean_score}\n")
+                    with (run / "kid_fid_scores.txt").open("a") as f:
+                        f.write(f"Step {checkpoint.stem} | kid: {kid_score} fid: {fid_score}\n")
 
 
 if __name__ == "__main__":
-    _test_cis(Path("./checkpoints/new_kl_loss_3/"))
+    if len(sys.argv) < 3:
+        sys.exit("usage: test_kid_fid.py <config.toml> <checkpoints-dir>  "
+                 "(sweeps every run directory under <checkpoints-dir>)")
+    _test_kid_fid(Path(sys.argv[2]))

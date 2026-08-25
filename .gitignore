@@ -11,3 +11,5 @@
 /Examples/
 *.png
 *.jpg
+/.agent-shell/
+/checkpoints

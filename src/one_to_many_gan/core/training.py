@@ -6,7 +6,12 @@ import torch
 
 from one_to_many_gan.data.config import Config
 from one_to_many_gan.model.builder import Discriminator, Generator, MappingNetwork, StyleExtractor
-from one_to_many_gan.model.loss import kl_loss_func, path_loss_func, style_cycle_loss_func
+from one_to_many_gan.model.loss import (
+    kl_loss_func,
+    path_loss_func,
+    style_cycle_loss_func,
+    true_kl_loss_func,
+)
 
 # Clean up return value code
 _detacher = lambda x: x.detach().cpu().item()
@@ -134,7 +139,13 @@ def generator_step(
     # Combine for single forward pass
     combined_images = torch.cat([real_shoeprints, real_shoemarks], dim=0)
     combined_latents = generator.encode(combined_images)
-    kl_loss = kl_loss_func(combined_latents)
+    # true_kl_loss substitutes the SANTA formulation of Xie et al. (mean
+    # squared pre-noise latents; pair with add_latent_noise) for the default
+    # moment matching. .get keeps configs written before the flag working.
+    if config["optimisation"].get("true_kl_loss", False):
+        kl_loss = true_kl_loss_func(combined_latents)
+    else:
+        kl_loss = kl_loss_func(combined_latents)
 
     # Encoded latent variables
     # Not specified in paper, but in implementation Xie et al. add noise to latents.

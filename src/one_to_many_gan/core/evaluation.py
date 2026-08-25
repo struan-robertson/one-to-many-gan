@@ -125,7 +125,7 @@ def validate_kid_fid(
         val_shoemarks = generator(shoeprints, s)
 
         for shoemark in val_shoemarks:
-            torchvision.utils.save_image(shoemark, generation_dir / f"{shoemark_count}.png")
+            torchvision.utils.save_image(shoemark, generation_dir / f"{shoemark_count}.png", normalize=True)
             shoemark_count += 1
 
     fid_score = fid.compute_fid(

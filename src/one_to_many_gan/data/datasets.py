@@ -56,7 +56,7 @@ class CyclingDataLoader:
 
 
 class ShoeDataset(Dataset):
-    """Shoe dataset loaded entirely into RAM."""
+    """Shoe dataset that loads images lazily from disk."""
 
     def __init__(
         self,
@@ -64,34 +64,31 @@ class ShoeDataset(Dataset):
         *,
         mode: _dataset_mode | None,
         transform,
+        channels: int = 3,
     ):
         path = Path(path)
 
         if mode:
             path = path.expanduser() / mode
 
-        image_files = list(path.rglob("*.jpg")) + list(path.rglob("*.png"))
+        self.image_files = list(path.rglob("*.jpg")) + list(path.rglob("*.png"))
 
-        if len(image_files) == 0:
+        if len(self.image_files) == 0:
             raise FileNotFoundError
 
-        self.images = []
-        for image_file in image_files:
-            image = _to_tensor(Image.open(image_file))
-            self.images.append(image)
-
         self.transform = transform
+        self._pil_mode = "RGB" if channels == 3 else "L"
 
     def __len__(self):
-        return len(self.images)
+        return len(self.image_files)
 
     def __getitem__(self, idx: int):
-        image = self.images[idx]
+        image = _to_tensor(Image.open(self.image_files[idx]).convert(self._pil_mode))
 
         return self.transform(image)
 
     def random_sample(self, n: int):
-        images = random.sample(self.images, n)
-        images = [self.transform(image) for image in images]
+        files = random.sample(self.image_files, n)
+        images = [self.transform(_to_tensor(Image.open(f).convert(self._pil_mode))) for f in files]
 
         return torch.stack(images)

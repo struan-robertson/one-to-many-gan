@@ -2,7 +2,7 @@
 
 import tomllib
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class _Training(TypedDict):
@@ -28,6 +28,7 @@ class _Optimisation(TypedDict):
     identity_loss_lambda: float
     reconstruction_loss_lambda: float
     kl_loss_lambda: float
+    true_kl_loss: bool
     path_loss_lambda: float
     path_loss_jacobian_granularity: tuple[float, float]
     learning_rate: float
@@ -41,6 +42,8 @@ class _Evaluation(TypedDict):
     n_evaluation_images: int
     cond_is_n_evaluation_images: int
     use_training_data: bool
+    eval_seed: NotRequired[int]
+    validate_during_training: NotRequired[bool]
 
 
 class _Architecture(TypedDict):

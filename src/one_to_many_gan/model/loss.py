@@ -43,6 +43,20 @@ def kl_loss_func(
     return loss_mean + loss_var
 
 
+def true_kl_loss_func(
+    combined_latents: torch.Tensor,
+):
+    """The latent regularisation of Xie et al. as implemented in their SANTA code.
+
+    With unit-variance noise added to the latents, the posterior is
+    N(latent, I) and its KL against N(0, I) reduces to the mean squared
+    latent, up to constants. Only meaningful with add_latent_noise enabled:
+    without the noise there is no posterior and the penalty just shrinks
+    the latents.
+    """
+    return combined_latents.pow(2).mean()
+
+
 # ** Path Length Loss
 
 

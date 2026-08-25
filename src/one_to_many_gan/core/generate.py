@@ -40,8 +40,6 @@ class GeneratorHandler:
             .eval()
         )
 
-        generator = torch.compile(generator, fullgraph=True, mode="default")
-        mapping_network = torch.compile(mapping_network, fullgraph=True, mode="default")
         generator = cast(Generator, generator)
         mapping_network = cast(MappingNetwork, mapping_network)
 
@@ -49,8 +47,11 @@ class GeneratorHandler:
             config["inference"]["checkpoint"],
             map_location=device,
         )
-        generator.load_state_dict(checkpoint["generator_state_dict"])
-        mapping_network.load_state_dict(checkpoint["mapping_network_state_dict"])
+        def strip_prefix(state_dict):
+            return {k.removeprefix("_orig_mod."): v for k, v in state_dict.items()}
+
+        generator.load_state_dict(strip_prefix(checkpoint["generator_state_dict"]))
+        mapping_network.load_state_dict(strip_prefix(checkpoint["mapping_network_state_dict"]))
 
         for param in generator.parameters():
             param.requires_grad = False

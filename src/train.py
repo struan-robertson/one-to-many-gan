@@ -94,9 +94,6 @@ style_extractor = StyleExtractor(
     input_nc=config["data"]["image_channels"], s_dim=config["architecture"]["s_dim"]
 ).to(device)
 
-generator = torch.compile(generator, fullgraph=True, mode="default")
-mapping_network = torch.compile(mapping_network, fullgraph=True, mode="default")
-style_extractor = torch.compile(style_extractor, fullgraph=True, mode="default")
 
 generator = cast(Generator, generator)
 mapping_network = cast(MappingNetwork, mapping_network)
@@ -141,6 +138,7 @@ shoemark_data = ShoeDataset(
         *config["data"]["shoemark_norm"],
         random_image_flip=config["training"]["random_image_flip"],
     ),
+    channels=config["data"]["image_channels"],
 )
 shoemark_val_data = ShoeDataset(
     config["data"]["shoemark_data_dir"],
@@ -150,6 +148,7 @@ shoemark_val_data = ShoeDataset(
         *config["data"]["shoemark_norm"],
         random_image_flip=False,
     ),
+    channels=config["data"]["image_channels"],
 )
 
 shoemark_dataloader = torch.utils.data.DataLoader(
@@ -169,6 +168,7 @@ shoeprint_data = ShoeDataset(
         *config["data"]["shoeprint_norm"],
         random_image_flip=config["training"]["random_image_flip"],
     ),
+    channels=config["data"]["image_channels"],
 )
 shoeprint_val_data = ShoeDataset(
     config["data"]["shoeprint_data_dir"],
@@ -178,6 +178,7 @@ shoeprint_val_data = ShoeDataset(
         *config["data"]["shoeprint_norm"],
         random_image_flip=False,
     ),
+    channels=config["data"]["image_channels"],
 )
 
 shoeprint_dataloader = torch.utils.data.DataLoader(
@@ -300,10 +301,40 @@ def _training_loop():
                     style_extractor,
                 )
 
-                fid_score, kid_score = validate_kid_fid(
-                    config, device, shoeprint_val_iter, mapping_network, generator
-                )
-                write_logfile(config, f"Step {step} | fid: {fid_score}, kid: {kid_score}")
+                # Seeded, sweep-equivalent validation: identical conditions to
+                # test_kid_fid.py per checkpoint (fresh unshuffled loader from
+                # image 0, batch 64, fixed style seed), so with
+                # use_training_data = true the logged scores ARE the selection
+                # sweep and no post-hoc pass is needed. Training's RNG stream
+                # is saved and restored around it, leaving training unaffected.
+                # validate_during_training = false skips it (the seeded
+                # test_kid_fid.py sweep over the saved checkpoints is identical).
+                if config["evaluation"].get("validate_during_training", True):
+                    rng_cpu = torch.get_rng_state()
+                    rng_cuda = torch.cuda.get_rng_state_all()
+                    torch.manual_seed(config["evaluation"].get("eval_seed", 0))
+                    eval_loader = torch.utils.data.DataLoader(
+                        shoeprint_val_data,
+                        batch_size=64,
+                        shuffle=False,
+                        num_workers=0,
+                        drop_last=False,
+                        pin_memory=True,
+                    )
+                    fid_score, kid_score = validate_kid_fid(
+                        config,
+                        device,
+                        CyclingDataLoader(eval_loader),
+                        mapping_network,
+                        generator,
+                        config["training"]["checkpoint_directory"]
+                        / config["training"]["training_run"]
+                        / "generated",
+                        config["data"]["shoemark_data_dir"] / val_data_mode,
+                    )
+                    torch.set_rng_state(rng_cpu)
+                    torch.cuda.set_rng_state_all(rng_cuda)
+                    write_logfile(config, f"Step {step} | fid: {fid_score}, kid: {kid_score}")
 
                 create_model_checkpoint(
                     step,

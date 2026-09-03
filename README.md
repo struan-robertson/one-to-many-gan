@@ -71,3 +71,8 @@ uv run python src/train.py $COMMON \
 ```
 
 Configurations as originally run are preserved at the `pre-restructure` tag.
+
+## Licence
+
+Distributed under the GNU General Public License, version 3 or later. The full
+text is in [LICENSE](LICENSE).

@@ -3,6 +3,8 @@ name = "one-to-many-gan"
 version = "0.1.0"
 description = "One-to-Many GAN"
 requires-python = ">=3.13"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "clean-fid==0.1.35", # pinned to match the UNSB project for comparable scores
     "gdown>=5.2.0",
